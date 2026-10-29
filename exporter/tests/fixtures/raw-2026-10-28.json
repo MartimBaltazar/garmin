@@ -4,73 +4,334 @@
   "errors": {},
   "sources": {
     "summaries": {
-      "summaries": [
+      "data": [
         {
           "calendarDate": "2026-10-28",
-          "totalSteps": 11234,
-          "restingHeartRate": 51,
-          "totalKilocalories": 2480.0,
-          "averageStressLevel": 31,
-          "floorsAscended": 14,
-          "moderateIntensityMinutes": 25,
-          "vigorousIntensityMinutes": 12
+          "source": "garmin",
+          "includesWellnessData": false,
+          "includesActivityData": false,
+          "wellnessChronology": {
+            "startTimestampGmt": "",
+            "startTimestampLocal": "",
+            "endTimestampGmt": "",
+            "endTimestampLocal": "",
+            "totalDurationInMillis": 0
+          },
+          "movement": {
+            "steps": {
+              "goal": 10000,
+              "value": 11234,
+              "distanceInMeters": 8500.0
+            },
+            "pushes": {},
+            "floorsAscended": {
+              "goal": 0,
+              "value": 12,
+              "distanceInMeters": 0
+            },
+            "floorsDescended": {
+              "value": 0,
+              "distanceInMeters": 0
+            }
+          },
+          "calories": {
+            "burnedResting": 2000,
+            "burnedActive": 500,
+            "burnedTotal": 2500
+          },
+          "heartRate": {
+            "minValue": 45,
+            "maxValue": 165,
+            "restingValue": 52
+          },
+          "intensityMinutes": {
+            "goal": 150,
+            "moderate": 20,
+            "vigorous": 15
+          },
+          "stress": {
+            "avgLevel": 30,
+            "maxLevel": 90,
+            "restProportion": 0,
+            "activityProportion": 0,
+            "uncategorizedProportion": 0,
+            "lowStressProportion": 0,
+            "mediumStressProportion": 0,
+            "highStressProportion": 0,
+            "qualifier": "calm",
+            "totalDurationInMillis": 0,
+            "restDurationInMillis": 0,
+            "activityDurationInMillis": 0,
+            "uncategorizedDurationInMillis": 0,
+            "lowStressDurationInMillis": 0,
+            "mediumStressDurationInMillis": 0,
+            "highStressDurationInMillis": 0
+          },
+          "bodyBattery": {
+            "minValue": 25,
+            "maxValue": 95,
+            "chargedValue": 0,
+            "drainedValue": 0,
+            "latestValue": 26,
+            "featureVersion": "3.0",
+            "dynamicFeedbackEvent": {
+              "eventTimestampGmt": "",
+              "bodyBatteryLevel": "",
+              "feedbackShortType": "SLEEP_PREPARATION_RECOVERING_AND_INTENSIVE_EXERCISE",
+              "feedbackLongType": ""
+            },
+            "endOfDayDynamicFeedbackEvent": {
+              "eventTimestampGmt": "",
+              "bodyBatteryLevel": "",
+              "feedbackShortType": "SLEEP_TIME_PASSED_RECOVERING_AND_INTENSIVE_EXERCISE",
+              "feedbackLongType": ""
+            },
+            "activityEvents": [
+              {
+                "eventType": "",
+                "eventStartTimeGmt": "",
+                "eventStartTimeLocal": "",
+                "bodyBatteryImpact": 0,
+                "feedbackType": "",
+                "shortFeedback": "",
+                "durationInMillis": 0
+              }
+            ]
+          },
+          "hydration": {
+            "goalInMl": 0,
+            "goalInFractionalMl": 0,
+            "consumedInMl": 1500,
+            "consumedInFractionalMl": 0
+          },
+          "respiration": {
+            "avgValue": 14,
+            "maxValue": 0,
+            "minValue": 0,
+            "latestValue": 0,
+            "latestTimestampGmt": "",
+            "algorithmVersion": 0
+          },
+          "pulseOx": {
+            "avgAltitudeInMeters": 0
+          },
+          "jetLag": {}
         }
       ]
     },
-    "sleep": {
-      "dailySleepDTOList": [
-        {
-          "dailySleepDTO": {
-            "calendarDate": "2026-10-28",
-            "sleepTimeSeconds": 26400,
-            "deepSleepSeconds": 5100,
-            "remSleepSeconds": 4800,
-            "lightSleepSeconds": 15900,
-            "awakeSleepSeconds": 600,
-            "avgSleepStress": 18,
-            "averageSpO2Value": 95.0,
-            "averageRespirationValue": 14.1,
-            "sleepScores": { "overall": { "value": 78, "qualifierKey": "GOOD" } }
-          }
+    "sleep": [
+      {
+        "calendarDate": "2026-10-28",
+        "values": {
+          "remTime": 4800,
+          "restingHeartRate": 0,
+          "totalSleepTimeInSeconds": 26400,
+          "respiration": 14.1,
+          "localSleepEndTimeInMillis": 0,
+          "deepTime": 5100,
+          "awakeTime": 600,
+          "sleepScoreQuality": "GOOD",
+          "spO2": null,
+          "localSleepStartTimeInMillis": 0,
+          "sleepNeed": 460,
+          "bodyBatteryChange": 40,
+          "gmtSleepStartTimeInMillis": 0,
+          "gmtSleepEndTimeInMillis": 0,
+          "hrvStatus": "NONE",
+          "skinTempF": null,
+          "sleepScore": 78,
+          "skinTempC": null,
+          "lightTime": 15900,
+          "avgOvernightHrv": 0,
+          "avgHeartRate": 0,
+          "hrv7dAverage": 0
         }
-      ]
-    },
-    "rhr": {
-      "restingHeartRateList": [{ "calendarDate": "2026-10-28", "value": 51 }]
-    },
-    "stress": {
-      "stress": [{ "calendarDate": "2026-10-28", "overallStressLevel": 31 }]
-    },
-    "body_battery": {
-      "bodyBattery": [{ "calendarDate": "2026-10-28", "stats": { "min": 18, "max": 92 } }]
-    },
+      }
+    ],
+    "rhr": [
+      {
+        "calendarDate": "2026-10-28",
+        "value": 52
+      }
+    ],
+    "stress": [
+      {
+        "calendarDate": "2026-10-28",
+        "values": {
+          "highStressDuration": 3000,
+          "lowStressDuration": 6000,
+          "overallStressLevel": 30,
+          "restStressDuration": 50000,
+          "mediumStressDuration": 2400
+        }
+      }
+    ],
+    "body_battery": [
+      {
+        "calendarDate": "2026-10-28",
+        "values": {
+          "lowBodyBattery": 25,
+          "highBodyBattery": 95
+        }
+      }
+    ],
     "hrv": {
-      "hrv": [
-        { "calendarDate": "2026-10-28", "hrvSummary": { "lastNightAvg": 46, "weeklyAvg": 44 } }
-      ]
-    },
-    "vo2max": {
-      "maxMetrics": [
+      "hrvSummaries": [
         {
           "calendarDate": "2026-10-28",
-          "generic": { "vo2MaxPreciseValue": 48.2 },
-          "cycling": { "vo2MaxPreciseValue": 44.9 }
+          "weeklyAvg": 46,
+          "lastNightAvg": 48,
+          "lastNight5MinHigh": 0,
+          "baseline": 45,
+          "status": "NONE",
+          "feedbackPhrase": "",
+          "createTimeStamp": ""
         }
-      ]
-    }
+      ],
+      "userProfilePk": 0
+    },
+    "vo2max": [
+      {
+        "generic": {
+          "calendarDate": "2026-10-28",
+          "vo2MaxPreciseValue": 48.2,
+          "vo2MaxValue": 48.0,
+          "fitnessAge": null,
+          "fitnessAgeDescription": null,
+          "maxMetCategory": 0
+        },
+        "cycling": {
+          "calendarDate": "2026-10-28",
+          "vo2MaxPreciseValue": 44.9,
+          "vo2MaxValue": 44.0,
+          "fitnessAge": null,
+          "fitnessAgeDescription": null,
+          "maxMetCategory": 0
+        },
+        "heatAltitudeAcclimation": null
+      }
+    ]
   },
   "activities": [
     {
       "activityId": 987654321,
-      "activityType": { "typeKey": "running" },
-      "duration": 3600.5,
+      "startTimeLocal": "",
+      "startTimeGMT": "2026-10-28 07:15:30",
+      "activityType": {
+        "typeId": 0,
+        "typeKey": "running",
+        "parentTypeId": 0,
+        "isHidden": false,
+        "trimmable": false,
+        "restricted": false
+      },
+      "eventType": {
+        "typeId": 0,
+        "typeKey": "uncategorized",
+        "sortOrder": 0
+      },
+      "isFavorite": false,
+      "isPR": false,
+      "isAutoCalcCalories": false,
+      "isParent": false,
       "distance": 10500.0,
+      "duration": 3600.5,
+      "elapsedDuration": 0,
+      "movingDuration": 3400,
+      "elevationGain": 85.0,
+      "elevationLoss": 0,
+      "averageSpeed": 0,
+      "maxSpeed": 0,
+      "hasPolyline": false,
+      "hasImages": false,
+      "calories": 720,
+      "bmrCalories": 0,
       "averageHR": 148,
       "maxHR": 172,
-      "calories": 720,
-      "trainingEffect": 3.4,
-      "elevationGain": 85.0,
-      "startTimeGMT": "2026-10-28 07:15:30"
+      "averageRunningCadenceInStepsPerMinute": 0,
+      "maxRunningCadenceInStepsPerMinute": 0,
+      "steps": 0,
+      "privacy": {
+        "typeId": 0,
+        "typeKey": "private"
+      },
+      "hasVideo": false,
+      "isPurposeful": false,
+      "beginTimestamp": 0,
+      "sportTypeId": 0,
+      "avgPower": 0,
+      "maxPower": 0,
+      "aerobicTrainingEffect": 3.4,
+      "anaerobicTrainingEffect": 1.2,
+      "normPower": 0,
+      "avgVerticalOscillation": 0,
+      "avgGroundContactTime": 0,
+      "avgStrideLength": 0,
+      "vO2MaxValue": 0,
+      "avgVerticalRatio": 0,
+      "minTemperature": 0,
+      "maxTemperature": 0,
+      "minElevation": 0,
+      "maxElevation": 0,
+      "avgElevation": 0,
+      "maxDoubleCadence": 0,
+      "isElevationCorrected": false,
+      "isDecoDive": false,
+      "maxVerticalSpeed": 0,
+      "manufacturer": "",
+      "lapCount": 0,
+      "isAtpActivity": false,
+      "waterEstimated": 0,
+      "trainingEffectLabel": "",
+      "minActivityLapDuration": 0,
+      "aerobicTrainingEffectMessage": "",
+      "anaerobicTrainingEffectMessage": "",
+      "splitSummaries": [
+        {
+          "noOfSplits": 0,
+          "totalAscent": 0,
+          "duration": 0,
+          "splitType": "",
+          "maxElevationGain": 0,
+          "averageElevationGain": 0,
+          "maxDistance": 0,
+          "maxDistanceWithPrecision": 0,
+          "distance": 0,
+          "averageSpeed": 0,
+          "maxSpeed": 0,
+          "elevationLoss": 0,
+          "avgStepFrequency": 0
+        }
+      ],
+      "hasSplits": false,
+      "hasIntensityIntervals": false,
+      "isManualActivity": false,
+      "moderateIntensityMinutes": 0,
+      "vigorousIntensityMinutes": 0,
+      "avgGradeAdjustedSpeed": 0,
+      "differenceBodyBattery": 0,
+      "hasHeatMap": false,
+      "fastestSplit_1000": 0,
+      "fastestSplit_1609": 0,
+      "hrTimeInZone_1": 0,
+      "hrTimeInZone_2": 0,
+      "hrTimeInZone_3": 0,
+      "hrTimeInZone_4": 0,
+      "hrTimeInZone_5": 0,
+      "powerTimeInZone_1": 0,
+      "powerTimeInZone_2": 0,
+      "powerTimeInZone_3": 0,
+      "powerTimeInZone_4": 0,
+      "powerTimeInZone_5": 0,
+      "endTimeGMT": "",
+      "qualifyingDive": false,
+      "purposeful": false,
+      "manualActivity": false,
+      "autoCalcCalories": false,
+      "elevationCorrected": false,
+      "atpActivity": false,
+      "decoDive": false,
+      "favorite": false
     }
   ]
 }

@@ -1,15 +1,22 @@
 """Garmin JSON -> typed Samples.
 
+Every field path in this module has been checked against a real ``garmin-exporter
+dump`` capture, not against documentation. Garmin's real payloads are nested far
+deeper than the docs suggest, and the names differ (``totalSteps`` does not
+exist; steps live at ``movement.steps.value``). The comments record what the real
+shape is, because that is the part that is not guessable.
+
 Design rules:
 
 * One function per Garmin source. No function raises on a missing field — Garmin
   omits data habitually (no sleep record that night, no VO2 max for a day) and an
   absent datapoint is not a fault.
 * Metric names follow the contract in ``dashboards/README.md``. ``garmin_daily_*``
-  means exactly one sample per calendar date.
-* Field paths are **documented guesses**, not verified against a live response.
-  ``garmin-exporter dump`` is the mechanism that verifies them; every function
-  logs which metric it could not extract so the fix is obvious.
+  means exactly one sample per calendar date, stamped at 00:00 UTC.
+* Only fields that exist in the real response are mapped. Metrics that would need
+  a per-day fan-out (e.g. sleep-stage SpO2 and sleep stress, which live only in
+  ``get_sleep_data``'s full payload) are deliberately left out: one cheap range
+  call per 28 days beats one call per day for two extra series.
 """
 
 from __future__ import annotations
@@ -39,6 +46,7 @@ def _get_path(payload: Any, path: str) -> Any:
 
 
 def _first(payload: Any, *paths: str) -> Any:
+    """First non-None value among several candidate paths."""
     for path in paths:
         value = _get_path(payload, path)
         if value is not None:
@@ -58,7 +66,7 @@ def _day_of(payload: Any) -> datetime | None:
 
 
 def _instant(payload: Any, *paths: str) -> datetime | None:
-    """Parse a Garmin ``YYYY-MM-DD HH:MM:SS`` UTC string."""
+    """Parse Garmin's ``YYYY-MM-DD HH:MM:SS`` (UTC) or a millisecond epoch."""
     for path in paths:
         raw = _get_path(payload, path)
         if isinstance(raw, str) and len(raw) >= 19:
@@ -84,39 +92,81 @@ class _Collector:
         else:
             self.samples.append(result)
 
-    def extend(self, results: list[Sample]) -> None:
-        self.samples.extend(results)
-
     def note_missing(self, name: str) -> None:
         self.missing.add(name)
 
 
 # --------------------------------------------------------------------------- #
-# Daily summaries: steps, resting HR, calories, stress, intensity minutes
+# Daily summaries
+#
+# Real shape (get_daily_summaries -> {"data": [...]}), one item per day:
+#   movement.steps.value / .goal / .distanceInMeters
+#   movement.floorsAscended.value
+#   calories.burnedResting / .burnedActive / .burnedTotal
+#   heartRate.minValue / .maxValue / .restingValue
+#   intensityMinutes.moderate / .vigorous / .goal
+#   stress.avgLevel / .maxLevel
+#   bodyBattery.minValue / .maxValue / .latestValue
+#   respiration.avgValue
+#   hydration.consumedInMl
 # --------------------------------------------------------------------------- #
 def summary_samples(payload: Any) -> list[Sample]:
     out = _Collector()
-    for item in as_list(payload, "summaries", "dailySummaries"):
+    for item in as_list(payload, "data", "summaries", "dailySummaries"):
         ts = _day_of(item)
         if ts is None:
             out.note_missing("summary:no_date")
             continue
-        out.add(sample("garmin_daily_steps", _first(item, "totalSteps"), ts), "garmin_daily_steps")
+
         out.add(
-            sample("garmin_daily_resting_heart_rate", _first(item, "restingHeartRate"), ts),
-            "garmin_daily_resting_heart_rate",
+            sample("garmin_daily_steps", _first(item, "movement.steps.value"), ts),
+            "garmin_daily_steps",
         )
         out.add(
-            sample("garmin_daily_calories", _first(item, "totalKilocalories"), ts),
+            sample("garmin_daily_steps_goal", _first(item, "movement.steps.goal"), ts),
+            "garmin_daily_steps_goal",
+        )
+        out.add(
+            sample(
+                "garmin_daily_distance_meters", _first(item, "movement.steps.distanceInMeters"), ts
+            ),
+            "garmin_daily_distance_meters",
+        )
+        out.add(
+            sample("garmin_daily_floors", _first(item, "movement.floorsAscended.value"), ts),
+            "garmin_daily_floors",
+        )
+        out.add(
+            sample("garmin_daily_calories", _first(item, "calories.burnedTotal"), ts),
             "garmin_daily_calories",
         )
         out.add(
-            sample("garmin_daily_stress_avg", _first(item, "averageStressLevel"), ts),
+            sample("garmin_daily_calories_active", _first(item, "calories.burnedActive"), ts),
+            "garmin_daily_calories_active",
+        )
+        out.add(
+            sample("garmin_daily_calories_resting", _first(item, "calories.burnedResting"), ts),
+            "garmin_daily_calories_resting",
+        )
+        out.add(
+            sample("garmin_daily_resting_heart_rate", _first(item, "heartRate.restingValue"), ts),
+            "garmin_daily_resting_heart_rate",
+        )
+        out.add(
+            sample("garmin_daily_heart_rate_min", _first(item, "heartRate.minValue"), ts),
+            "garmin_daily_heart_rate_min",
+        )
+        out.add(
+            sample("garmin_daily_heart_rate_max", _first(item, "heartRate.maxValue"), ts),
+            "garmin_daily_heart_rate_max",
+        )
+        out.add(
+            sample("garmin_daily_stress_avg", _first(item, "stress.avgLevel"), ts),
             "garmin_daily_stress_avg",
         )
         out.add(
-            sample("garmin_daily_floors", _first(item, "floorsAscended"), ts),
-            "garmin_daily_floors",
+            sample("garmin_daily_stress_max", _first(item, "stress.maxLevel"), ts),
+            "garmin_daily_stress_max",
         )
         # Vigorous minutes count double toward Garmin's own goal, so we publish
         # both raw series and let the query decide. Guessing here would bake a
@@ -124,7 +174,7 @@ def summary_samples(payload: Any) -> list[Sample]:
         out.add(
             sample(
                 "garmin_daily_intensity_minutes",
-                _first(item, "moderateIntensityMinutes"),
+                _first(item, "intensityMinutes.moderate"),
                 ts,
                 kind="moderate",
             ),
@@ -133,11 +183,37 @@ def summary_samples(payload: Any) -> list[Sample]:
         out.add(
             sample(
                 "garmin_daily_intensity_minutes",
-                _first(item, "vigorousIntensityMinutes"),
+                _first(item, "intensityMinutes.vigorous"),
                 ts,
                 kind="vigorous",
             ),
             "garmin_daily_intensity_minutes",
+        )
+        out.add(
+            sample(
+                "garmin_daily_intensity_goal_minutes", _first(item, "intensityMinutes.goal"), ts
+            ),
+            "garmin_daily_intensity_goal_minutes",
+        )
+        out.add(
+            sample("garmin_daily_body_battery_min", _first(item, "bodyBattery.minValue"), ts),
+            "garmin_daily_body_battery_min",
+        )
+        out.add(
+            sample("garmin_daily_body_battery_max", _first(item, "bodyBattery.maxValue"), ts),
+            "garmin_daily_body_battery_max",
+        )
+        out.add(
+            sample("garmin_daily_body_battery_latest", _first(item, "bodyBattery.latestValue"), ts),
+            "garmin_daily_body_battery_latest",
+        )
+        out.add(
+            sample("garmin_daily_respiration_avg", _first(item, "respiration.avgValue"), ts),
+            "garmin_daily_respiration_avg",
+        )
+        out.add(
+            sample("garmin_daily_hydration_ml", _first(item, "hydration.consumedInMl"), ts),
+            "garmin_daily_hydration_ml",
         )
     _report("summaries", out)
     return out.samples
@@ -145,58 +221,40 @@ def summary_samples(payload: Any) -> list[Sample]:
 
 # --------------------------------------------------------------------------- #
 # Sleep
+#
+# get_sleep_daily returns a list of {calendarDate, values: {...}}. It is the
+# RANGE variant; get_daily_sleep takes a single date and its second parameter is
+# nonSleepBufferMinutes, which is why calling it with two dates fails.
+#
+#   values.totalSleepTimeInSeconds / deepTime / remTime / lightTime / awakeTime
+#   values.sleepScore / respiration / sleepNeed / bodyBatteryChange
 # --------------------------------------------------------------------------- #
+_SLEEP_FIELDS = (
+    ("garmin_daily_sleep_duration_seconds", "totalSleepTimeInSeconds"),
+    ("garmin_daily_deep_sleep_seconds", "deepTime"),
+    ("garmin_daily_rem_sleep_seconds", "remTime"),
+    ("garmin_daily_light_sleep_seconds", "lightTime"),
+    ("garmin_daily_awake_sleep_seconds", "awakeTime"),
+    ("garmin_daily_sleep_score", "sleepScore"),
+    ("garmin_daily_sleep_respiration_avg", "respiration"),
+    ("garmin_daily_sleep_need_minutes", "sleepNeed"),
+    ("garmin_daily_sleep_body_battery_change", "bodyBatteryChange"),
+)
+
+
 def sleep_samples(payload: Any) -> list[Sample]:
     out = _Collector()
-    for item in as_list(payload, "dailySleepDTOList", "sleep"):
-        dto = item.get("dailySleepDTO") if isinstance(item, dict) else None
-        node = dto if isinstance(dto, dict) else item
-        ts = _day_of(node) or _day_of(item)
+    for item in as_list(payload, "individualStats", "sleep"):
+        ts = _day_of(item)
         if ts is None:
             out.note_missing("sleep:no_date")
             continue
-        # sleepTimeSeconds is asleep time; the three stages must not be confused
-        # with it, and awake time is deliberately separate.
-        out.add(
-            sample("garmin_daily_sleep_duration_seconds", _first(node, "sleepTimeSeconds"), ts),
-            "garmin_daily_sleep_duration_seconds",
-        )
-        out.add(
-            sample("garmin_daily_deep_sleep_seconds", _first(node, "deepSleepSeconds"), ts),
-            "garmin_daily_deep_sleep_seconds",
-        )
-        out.add(
-            sample("garmin_daily_rem_sleep_seconds", _first(node, "remSleepSeconds"), ts),
-            "garmin_daily_rem_sleep_seconds",
-        )
-        out.add(
-            sample("garmin_daily_light_sleep_seconds", _first(node, "lightSleepSeconds"), ts),
-            "garmin_daily_light_sleep_seconds",
-        )
-        out.add(
-            sample("garmin_daily_awake_sleep_seconds", _first(node, "awakeSleepSeconds"), ts),
-            "garmin_daily_awake_sleep_seconds",
-        )
-        out.add(
-            sample(
-                "garmin_daily_sleep_score",
-                _first(node, "sleepScores.overall.value", "sleepScore"),
-                ts,
-            ),
-            "garmin_daily_sleep_score",
-        )
-        out.add(
-            sample("garmin_daily_sleep_stress_avg", _first(node, "avgSleepStress"), ts),
-            "garmin_daily_sleep_stress_avg",
-        )
-        out.add(
-            sample("garmin_daily_spo2_percent", _first(node, "averageSpO2Value"), ts),
-            "garmin_daily_spo2_percent",
-        )
-        out.add(
-            sample("garmin_daily_respiration_avg", _first(node, "averageRespirationValue"), ts),
-            "garmin_daily_respiration_avg",
-        )
+        # The stage values are nested under "values" in the range endpoint. Be
+        # tolerant of the flat shape too, so a library change that hoists them
+        # does not silently produce nothing.
+        node = item.get("values") if isinstance(item.get("values"), dict) else item
+        for metric, field in _SLEEP_FIELDS:
+            out.add(sample(metric, _get_path(node, field), ts), metric)
     _report("sleep", out)
     return out.samples
 
@@ -205,96 +263,122 @@ def sleep_samples(payload: Any) -> list[Sample]:
 # Resting HR, stress, body battery, HRV, VO2 max
 # --------------------------------------------------------------------------- #
 def rhr_samples(payload: Any) -> list[Sample]:
+    """get_rhr_daily -> [{calendarDate, value}].
+
+    Duplicates ``summary_samples``' ``heartRate.restingValue``. Kept because it
+    still works on days the summary endpoint has no record for; ``_dedupe``
+    collapses the overlap.
+    """
     out = _Collector()
     for item in as_list(payload, "restingHeartRate", "rhr"):
         ts = _day_of(item)
         if ts is None:
             continue
-        # Fallback path because get_rhr_daily nests values under allMetrics.
-        value = _first(
-            item,
-            "restingHeartRate",
-            "value",
-            "allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE.0.value",
-        )
         out.add(
-            sample("garmin_daily_resting_heart_rate", value, ts), "garmin_daily_resting_heart_rate"
+            sample("garmin_daily_resting_heart_rate", _first(item, "value"), ts),
+            "garmin_daily_resting_heart_rate",
         )
     _report("rhr", out)
     return out.samples
 
 
 def stress_samples(payload: Any) -> list[Sample]:
+    """get_daily_stress_stats -> [{calendarDate, values: {...}}].
+
+    ``values.*Duration`` are seconds (the summary endpoint reports the same
+    numbers as ``*DurationInMillis``, divided by 1000).
+    """
     out = _Collector()
     for item in as_list(payload, "stress", "dailyStress"):
         ts = _day_of(item)
         if ts is None:
             continue
+        node = item.get("values") if isinstance(item.get("values"), dict) else item
         out.add(
-            sample(
-                "garmin_daily_stress_avg",
-                _first(item, "overallStressLevel", "averageStressLevel", "value"),
-                ts,
-            ),
+            sample("garmin_daily_stress_avg", _first(node, "overallStressLevel"), ts),
             "garmin_daily_stress_avg",
         )
+        for level, field in (
+            ("rest", "restStressDuration"),
+            ("low", "lowStressDuration"),
+            ("medium", "mediumStressDuration"),
+            ("high", "highStressDuration"),
+        ):
+            out.add(
+                sample(
+                    "garmin_daily_stress_duration_seconds", _get_path(node, field), ts, level=level
+                ),
+                "garmin_daily_stress_duration_seconds",
+            )
     _report("stress", out)
     return out.samples
 
 
 def body_battery_samples(payload: Any) -> list[Sample]:
+    """get_daily_body_battery_stats -> [{calendarDate, values: {...}}]."""
     out = _Collector()
     for item in as_list(payload, "bodyBattery", "dailyBodyBattery"):
         ts = _day_of(item)
         if ts is None:
             continue
+        node = item.get("values") if isinstance(item.get("values"), dict) else item
         out.add(
-            sample(
-                "garmin_daily_body_battery_max",
-                _first(item, "stats.max", "charged", "valueMax"),
-                ts,
-            ),
-            "garmin_daily_body_battery_max",
+            sample("garmin_daily_body_battery_min", _first(node, "lowBodyBattery"), ts),
+            "garmin_daily_body_battery_min",
         )
         out.add(
-            sample(
-                "garmin_daily_body_battery_min",
-                _first(item, "stats.min", "drained", "valueMin"),
-                ts,
-            ),
-            "garmin_daily_body_battery_min",
+            sample("garmin_daily_body_battery_max", _first(node, "highBodyBattery"), ts),
+            "garmin_daily_body_battery_max",
         )
     _report("body_battery", out)
     return out.samples
 
 
 def hrv_samples(payload: Any) -> list[Sample]:
+    """get_hrv_data_range -> {"hrvSummaries": [{calendarDate, ...}], "userProfilePk"}.
+
+    ``baseline`` is null until Garmin has enough history, so the baseline series
+    legitimately starts later than the others.
+    """
     out = _Collector()
-    for item in as_list(payload, "hrv", "hrvData"):
-        ts = _day_of(item) or _day_of(item.get("hrvSummary", {}) if isinstance(item, dict) else {})
+    for item in as_list(payload, "hrvSummaries", "hrv"):
+        ts = _day_of(item)
         if ts is None:
             continue
         out.add(
-            sample(
-                "garmin_daily_hrv_ms",
-                _first(item, "hrvSummary.lastNightAvg", "lastNightAvg", "weeklyAvg"),
-                ts,
-            ),
-            "garmin_daily_hrv_ms",
+            sample("garmin_daily_hrv_last_night_ms", _first(item, "lastNightAvg"), ts),
+            "garmin_daily_hrv_last_night_ms",
+        )
+        out.add(
+            sample("garmin_daily_hrv_weekly_avg_ms", _first(item, "weeklyAvg"), ts),
+            "garmin_daily_hrv_weekly_avg_ms",
+        )
+        out.add(
+            sample("garmin_daily_hrv_baseline_ms", _first(item, "baseline"), ts),
+            "garmin_daily_hrv_baseline_ms",
         )
     _report("hrv", out)
     return out.samples
 
 
 def vo2max_samples(payload: Any) -> list[Sample]:
+    """get_max_metrics_range -> [{generic: {...}, cycling: null, ...}].
+
+    The date lives inside each sport block, not on the wrapper, and entries only
+    exist on days with a qualifying activity — VO2 max is sparse by nature, not
+    every day.
+    """
     out = _Collector()
     for item in as_list(payload, "maxMetrics", "metrics"):
-        ts = _day_of(item)
-        if ts is None:
+        if not isinstance(item, dict):
             continue
         for sport in ("generic", "cycling"):
-            block = item.get(sport) if isinstance(item, dict) else None
+            block = item.get(sport)
             if not isinstance(block, dict):
+                continue
+            ts = _day_of(block)
+            if ts is None:
+                out.note_missing("vo2max:no_date")
                 continue
             out.add(
                 sample(
@@ -311,6 +395,10 @@ def vo2max_samples(payload: Any) -> list[Sample]:
 
 # --------------------------------------------------------------------------- #
 # Activities
+#
+# Real shape has no ``trainingEffect``: there are two separate effects, aerobic
+# and anaerobic. ``beginTimestamp`` is a millisecond epoch; ``startTimeGMT`` is
+# the same instant as ``YYYY-MM-DD HH:MM:SS``.
 # --------------------------------------------------------------------------- #
 def activity_samples(activities: list[Any]) -> list[Sample]:
     out = _Collector()
@@ -320,7 +408,7 @@ def activity_samples(activities: list[Any]) -> list[Sample]:
         activity_id = _first(item, "activityId")
         if activity_id is None:
             continue
-        ts = _instant(item, "startTimeGMT", "startTimeLocal", "beginTimestamp")
+        ts = _instant(item, "startTimeGMT", "beginTimestamp", "startTimeLocal")
         if ts is None:
             out.note_missing("activity:no_start_time")
             continue
@@ -330,39 +418,18 @@ def activity_samples(activities: list[Any]) -> list[Sample]:
                 _first(item, "activityType.typeKey", "activityType.typeId") or "unknown"
             ),
         }
-        out.add(
-            sample("garmin_activity_duration_seconds", _first(item, "duration"), ts, **labels),
-            "garmin_activity_duration_seconds",
-        )
-        out.add(
-            sample("garmin_activity_distance_meters", _first(item, "distance"), ts, **labels),
-            "garmin_activity_distance_meters",
-        )
-        out.add(
-            sample("garmin_activity_avg_heart_rate", _first(item, "averageHR"), ts, **labels),
-            "garmin_activity_avg_heart_rate",
-        )
-        out.add(
-            sample("garmin_activity_max_heart_rate", _first(item, "maxHR"), ts, **labels),
-            "garmin_activity_max_heart_rate",
-        )
-        out.add(
-            sample("garmin_activity_calories", _first(item, "calories"), ts, **labels),
-            "garmin_activity_calories",
-        )
-        out.add(
-            sample("garmin_activity_training_effect", _first(item, "trainingEffect"), ts, **labels),
-            "garmin_activity_training_effect",
-        )
-        out.add(
-            sample(
-                "garmin_activity_elevation_gain_meters",
-                _first(item, "elevationGain"),
-                ts,
-                **labels,
-            ),
-            "garmin_activity_elevation_gain_meters",
-        )
+        for metric, field in (
+            ("garmin_activity_duration_seconds", "duration"),
+            ("garmin_activity_moving_seconds", "movingDuration"),
+            ("garmin_activity_distance_meters", "distance"),
+            ("garmin_activity_avg_heart_rate", "averageHR"),
+            ("garmin_activity_max_heart_rate", "maxHR"),
+            ("garmin_activity_calories", "calories"),
+            ("garmin_activity_aerobic_training_effect", "aerobicTrainingEffect"),
+            ("garmin_activity_anaerobic_training_effect", "anaerobicTrainingEffect"),
+            ("garmin_activity_elevation_gain_meters", "elevationGain"),
+        ):
+            out.add(sample(metric, _first(item, field), ts, **labels), metric)
     _report("activities", out)
     return out.samples
 
@@ -394,9 +461,10 @@ def transform_all(payloads: RawPayloads) -> list[Sample]:
 def _dedupe(samples: list[Sample]) -> list[Sample]:
     """Later sources win on an identical (name, labels, timestamp).
 
-    Two endpoints can legitimately report the same daily value (summary and
-    RHR). The TSDB would overwrite them anyway; doing it here keeps the wire
-    payload small and makes the precedence deterministic.
+    Several endpoints legitimately report the same daily value (summaries and the
+    RHR endpoint both give resting heart rate; summaries and the body-battery
+    endpoint both give min/max). The TSDB would overwrite them anyway; doing it
+    here keeps the wire payload small and makes the precedence deterministic.
     """
     by_key: dict[tuple[str, tuple[tuple[str, str], ...], int], Sample] = {}
     for item in samples:
