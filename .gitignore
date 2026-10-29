@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Secrets and local state — never commit
+.env
+.tokens/
+*_tokens.json
+garmin_tokens.json
+exporter-state.json
+
+# Local fixture dumps contain personal health data. Commit only the synthetic
+# fixture under tests/fixtures/.
+fixtures/
+!exporter/tests/fixtures/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Node/tooling
+node_modules/

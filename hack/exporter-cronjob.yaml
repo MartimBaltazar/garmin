@@ -1,0 +1,88 @@
+# Bootstrap for local testing only. The Helm chart in Phase 4 supersedes this.
+# Apply after creating the token PVC and the credentials secret.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: garmin
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: garmin-tokens
+  namespace: garmin
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 64Mi
+---
+# Create the secret from the .env file, never from a committed manifest:
+#   kubectl -n garmin create secret generic garmin-credentials --from-env-file=exporter/.env
+#
+# An emptySecretRef is not used on purpose: a missing secret should fail the pod
+# loudly rather than start an exporter that silently cannot authenticate.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: garmin-exporter
+  namespace: garmin
+spec:
+  # Every 30 minutes. Garmin's own rate limiting, not this schedule, is the
+  # real constraint; the exporter also enforces GARMIN_REQUEST_PAUSE_SECONDS.
+  schedule: "*/30 * * * *"
+  # A slow run must not overlap the next one: two exporters refreshing the same
+  # token file would invalidate each other's session.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: exporter
+              image: ghcr.io/martimbaltazar/garmin-exporter:latest
+              args: ["run"]
+              envFrom:
+                - secretRef:
+                    name: garmin-credentials
+              env:
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: http://otel-collector.garmin.svc.cluster.local:4317
+                - name: GARMIN_EMIT
+                  value: otlp
+                - name: GARMIN_TOKENSTORE
+                  value: /var/lib/garmin/tokens
+                - name: GARMIN_LOOKBACK_DAYS
+                  value: "2"
+                - name: GARMIN_REQUEST_PAUSE_SECONDS
+                  value: "1.5"
+              volumeMounts:
+                - name: tokens
+                  mountPath: /var/lib/garmin
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: tokens
+              persistentVolumeClaim:
+                claimName: garmin-tokens

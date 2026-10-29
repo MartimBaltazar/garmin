@@ -1,0 +1,76 @@
+{
+  "start": "2026-10-28",
+  "end": "2026-10-28",
+  "errors": {},
+  "sources": {
+    "summaries": {
+      "summaries": [
+        {
+          "calendarDate": "2026-10-28",
+          "totalSteps": 11234,
+          "restingHeartRate": 51,
+          "totalKilocalories": 2480.0,
+          "averageStressLevel": 31,
+          "floorsAscended": 14,
+          "moderateIntensityMinutes": 25,
+          "vigorousIntensityMinutes": 12
+        }
+      ]
+    },
+    "sleep": {
+      "dailySleepDTOList": [
+        {
+          "dailySleepDTO": {
+            "calendarDate": "2026-10-28",
+            "sleepTimeSeconds": 26400,
+            "deepSleepSeconds": 5100,
+            "remSleepSeconds": 4800,
+            "lightSleepSeconds": 15900,
+            "awakeSleepSeconds": 600,
+            "avgSleepStress": 18,
+            "averageSpO2Value": 95.0,
+            "averageRespirationValue": 14.1,
+            "sleepScores": { "overall": { "value": 78, "qualifierKey": "GOOD" } }
+          }
+        }
+      ]
+    },
+    "rhr": {
+      "restingHeartRateList": [{ "calendarDate": "2026-10-28", "value": 51 }]
+    },
+    "stress": {
+      "stress": [{ "calendarDate": "2026-10-28", "overallStressLevel": 31 }]
+    },
+    "body_battery": {
+      "bodyBattery": [{ "calendarDate": "2026-10-28", "stats": { "min": 18, "max": 92 } }]
+    },
+    "hrv": {
+      "hrv": [
+        { "calendarDate": "2026-10-28", "hrvSummary": { "lastNightAvg": 46, "weeklyAvg": 44 } }
+      ]
+    },
+    "vo2max": {
+      "maxMetrics": [
+        {
+          "calendarDate": "2026-10-28",
+          "generic": { "vo2MaxPreciseValue": 48.2 },
+          "cycling": { "vo2MaxPreciseValue": 44.9 }
+        }
+      ]
+    }
+  },
+  "activities": [
+    {
+      "activityId": 987654321,
+      "activityType": { "typeKey": "running" },
+      "duration": 3600.5,
+      "distance": 10500.0,
+      "averageHR": 148,
+      "maxHR": 172,
+      "calories": 720,
+      "trainingEffect": 3.4,
+      "elevationGain": 85.0,
+      "startTimeGMT": "2026-10-28 07:15:30"
+    }
+  ]
+}

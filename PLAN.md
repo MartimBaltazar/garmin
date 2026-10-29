@@ -40,28 +40,33 @@ garmin-observability/
 ```
 
 ## 3. Phase 1: Data discovery (day 1-2)
-- [ ] Choose the source: `garminconnect` (unofficial, richer data) or Strava (official OAuth, activities only). **Recommend Garmin first.**
-- [ ] Log in locally and dump raw JSON for one day. Handle MFA and cache the token on disk (the library does this), so you don't re-login every run.
-- [ ] Decide metrics. Starter set:
+- [x] Choose the source: **`garminconnect`** (unofficial, richer data). Decided. Strava is activities-only and would lose sleep, stress, body battery and HRV.
+- [ ] Log in locally and dump raw JSON for one day. Handle MFA and cache the token on disk (the library does this), so you don't re-login every run. `garmin-exporter dump --date YYYY-MM-DD` writes the raw payloads to `exporter/fixtures/`.
+- [ ] **Re-verify field names against real payloads** before trusting the transform layer. The mapping in `exporter/src/garmin_exporter/transform.py` is written from the library's documented shapes, not a live response.
+- **Library note (v0.3.x):** no more `garth`. Python 3.12+, tokens at `<tokenstore>/garmin_tokens.json`, and `login()` self-heals by discarding rejected tokens and doing a fresh credential login. `return_on_mfa=True` makes MFA resumable in two steps (`login()` → `resume_login()`), which is what lets the CronJob run without credentials.
+- **Range endpoints change the backfill cost:** `get_daily_summaries(start, end)`, `get_daily_sleep`, `get_rhr_daily`, `get_daily_stress_stats`, `get_daily_body_battery_stats`, `get_hrv_data_range` all take a date range and return N days in one call. A month of backfill is a handful of requests, not 30.
+- **Dashboard reference:** [`arpanghosh8453/garmin-grafana`](https://github.com/arpanghosh8453/garmin-grafana) — a mature InfluxDB + Grafana implementation of this exact idea. Design notes, what to borrow, and the metric naming contract are in [`dashboards/README.md`](dashboards/README.md). Read that before writing any panel.
+- [x] Decide metrics. The full contract is in [`dashboards/README.md`](dashboards/README.md): a `garmin_daily_*` prefix for one-sample-per-day metrics, `garmin_activity_*` for per-workout, `garmin_exporter_*` for self-observability.
   - Daily: steps, resting HR, sleep duration and score, stress, body battery, HRV, VO2 max
   - Per activity: distance, duration, avg HR, calories
 - [ ] **Risk:** it's unofficial, so Garmin can block or break it. Mitigation: low poll rate (every 15-30 min), cached tokens, and a Strava fallback noted in docs.
 
 ## 4. Phase 2: Exporter (week 1)
-- [ ] Python package with a clean fetch -> transform -> emit split, so transforms are unit-testable on saved JSON fixtures
-- [ ] Live mode: OTel SDK gauges, OTLP to the Collector
-- [ ] Backfill mode: `--from/--to` flags, writes timestamped samples to the VictoriaMetrics import endpoint. It must be idempotent, since re-running overwrites the same timestamps
-- [ ] Self-observability: metrics for run success, duration, API errors and last-success timestamp (this feeds an alert later)
-- [ ] Structured logging, retry with backoff, a Garmin rate-limit guard
-- [ ] Dockerfile: multi-stage, non-root, pinned deps
-- [ ] Tests: pytest on fixtures, plus one integration test against a local VictoriaMetrics container
+- [x] Python package with a clean fetch -> transform -> emit split, so transforms are unit-testable on saved JSON fixtures
+- [x] Live mode: OTel SDK gauges, OTLP to the Collector
+- [x] Backfill mode: `--from/--to` flags, writes timestamped samples to the VictoriaMetrics import endpoint. It must be idempotent, since re-running overwrites the same timestamps
+- [x] Self-observability: metrics for run success, duration, API errors and last-success timestamp (this feeds an alert later)
+- [x] Structured logging, retry with backoff, a Garmin rate-limit guard
+- [x] Dockerfile: multi-stage, non-root, pinned deps
+- [ ] Tests: pytest on fixtures (34 tests, green), plus one integration test against a local VictoriaMetrics container
 
 ## 5. Phase 3: Local cluster (week 1-2)
 - [ ] `k3d cluster create` with a config file (same k3s as production)
 - [ ] Deploy VictoriaMetrics single-node, OTel Collector, Grafana
 - [ ] **Set `-retentionPeriod` explicitly** (e.g. `10y`). The default is 1 month and would silently drop your backfill.
 - [ ] Credentials as a Kubernetes Secret created from env at deploy time (`kubectl create secret ... --from-env-file`, git-ignored). **Never commit credentials.**
-- [ ] CronJobs: live exporter and a one-shot backfill Job
+- [x] CronJobs: live exporter (`hack/exporter-cronjob.yaml`, `*/30 * * * *`)
+- [ ] A one-shot backfill Job (currently run via `garmin-exporter backfill` from the CLI or `kubectl create job --from=cronjob/...`)
 - [ ] Persistent volumes for VictoriaMetrics and Grafana
 - [ ] `make up / down / backfill / test` targets
 
@@ -74,7 +79,9 @@ garmin-observability/
 
 ## 7. Phase 5: Dashboards and alerts as code (week 2-3)
 - [ ] **Dashboards in git**, provisioned via sidecar or ConfigMap: Daily Overview, Sleep, Training Load, Exporter Health
-- [ ] **Sparse-data gotcha:** Garmin data is daily or sparse, but Grafana assumes 5-minute staleness, so lines look broken. Use `last_over_time(metric[1d])` or a wide `$__interval`, and set the panel's connect-null-values option.
+- [ ] **Follow `dashboards/README.md`** for the panel set, layout conventions and the `garmin_daily_*` naming contract. Borrowed from `arpanghosh8453/garmin-grafana`: the 3/21 gauge-rail + wide-trend split, `state-timeline` for sleep stages, bar charts for daily-grain data, and a threshold-coloured "Last Sync" panel.
+- [ ] **Sparse-data gotcha, corrected:** Garmin data is daily or sparse, but Grafana assumes 5-minute staleness, so lines look broken. Do **not** lead with `last_over_time(metric[1d])`. Instead: (1) use `barchart`/`stat` for one-sample-per-day metrics, (2) push anything smoothed into a **recording rule** so it becomes a real dense series, (3) only then reach for `last_over_time` + connect-null-values on panels that genuinely mix daily and intraday signals.
+- [ ] **Out of scope by decision:** GPS map panels (lat/lon as metric labels is pathological cardinality) and FIT-file parsing (per-lap splits, strength sets, 1RM). Record both in an ADR so nobody expects a map tab.
 - [ ] **Alerts as code** (Grafana provisioning YAML or Terraform Grafana provider):
   - Exporter hasn't succeeded in 6h
   - Garmin auth failing
@@ -105,7 +112,8 @@ GitHub Actions, since the repo is public:
 
 ## 11. Phase 9: Production deploy and backfill (week 4)
 - [ ] `helm upgrade --install` with `values-prod.yaml`
-- [ ] Run the backfill in chunks (a month at a time) to stay under Garmin rate limits
+- [ ] **Backfill the last 6 months of intraday data first.** Garmin moves intraday detail (1-minute HR, sleep stages) older than ~6 months into cold storage; it is not served by the regular API endpoints any more. Daily aggregates stay available for any past date, forever. So the only thing that expires is the thing you'd lose permanently — do it first, in one pass.
+- [ ] Then backfill **daily aggregates** backwards in chunks (a month at a time). These are safe to do lazily. The range endpoints return a month per call, so this is cheap.
 - [ ] Verify with spot checks against Garmin's own app
 - [ ] Restore test: delete the PVC in a scratch namespace and restore from R2
 
@@ -130,10 +138,11 @@ Oracle's signup and capacity retry should be in week 1 so it doesn't block week 
 | Risk | Mitigation |
 |---|---|
 | Garmin blocks the unofficial API | Low poll rate, token cache, Strava fallback |
+| **Intraday data older than 6 months is archived by Garmin** | Pull the recent 6 months of intraday first; daily aggregates never expire so they can wait. Document that older intraday is unrecoverable in bulk. |
 | Oracle ARM capacity or reclamation | Retry early, Hetzner fallback, steady load |
 | Backfill silently dropped | Explicit retention period and spot checks |
 | Credentials leaked | Kubernetes Secret only, gitleaks in CI, git-ignored env files |
-| Scope creep | Weeks 1-2 deliver a working local stack by themselves |
+| Scope creep | Weeks 1-2 deliver a working local stack by themselves. GPS maps and FIT parsing are explicitly out of scope. |
 
 ## 15. Resume wording, once true
 Keep the bullet to what you built. If Cloudflare Access and R2 backups are in, you can add "behind Cloudflare Access, with backups to R2". Don't mention anything that's still on this list.
