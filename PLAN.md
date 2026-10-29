@@ -41,14 +41,17 @@ garmin-observability/
 
 ## 3. Phase 1: Data discovery (day 1-2)
 - [x] Choose the source: **`garminconnect`** (unofficial, richer data). Decided. Strava is activities-only and would lose sleep, stress, body battery and HRV.
-- [ ] Log in locally and dump raw JSON for one day. Handle MFA and cache the token on disk (the library does this), so you don't re-login every run. `garmin-exporter dump --date YYYY-MM-DD` writes the raw payloads to `exporter/fixtures/`.
-- [ ] **Re-verify field names against real payloads** before trusting the transform layer. The mapping in `exporter/src/garmin_exporter/transform.py` is written from the library's documented shapes, not a live response.
+- [x] Log in locally and dump raw JSON for one day. Handle MFA and cache the token on disk (the library does this), so you don't re-login every run. `garmin-exporter dump --date YYYY-MM-DD` writes the raw payloads to `exporter/fixtures/`. **Done 2026-10-29**: all seven sources return data with zero errors.
+- [x] **Re-verify field names against real payloads.** Done — and the first version was wrong about almost every path. Real findings, now encoded in `transform.py`:
+  - Steps are at `movement.steps.value`, not `totalSteps`. Calories at `calories.burnedTotal`, resting HR at `heartRate.restingValue`.
+  - There is no `trainingEffect`; the payload has separate `aerobicTrainingEffect` and `anaerobicTrainingEffect`.
+  - `get_daily_sleep` is a **single-day** call whose second argument is `non_sleep_buffer_minutes`. The range variant is `get_sleep_daily(start, end)`, and its payload nests everything under `values`.
+  - The daily summary endpoint already carries body battery, stress, hydration and respiration, so the per-metric endpoints are redundancy plus deeper fallbacks rather than the only source.
+- [x] **Data availability checked:** the account's history starts **2026-10-12**, so there is no six-month intraday backfill risk for this device. Still worth doing the recent window first once the cluster exists.
 - **Library note (v0.3.x):** no more `garth`. Python 3.12+, tokens at `<tokenstore>/garmin_tokens.json`, and `login()` self-heals by discarding rejected tokens and doing a fresh credential login. `return_on_mfa=True` makes MFA resumable in two steps (`login()` → `resume_login()`), which is what lets the CronJob run without credentials.
-- **Range endpoints change the backfill cost:** `get_daily_summaries(start, end)`, `get_daily_sleep`, `get_rhr_daily`, `get_daily_stress_stats`, `get_daily_body_battery_stats`, `get_hrv_data_range` all take a date range and return N days in one call. A month of backfill is a handful of requests, not 30.
+- **Range endpoints change the backfill cost, but not uniformly.** `get_daily_summaries`, `get_sleep_daily`, `get_rhr_daily`, `get_hrv_data_range` and `get_max_metrics_range` accept a wide range. But `get_daily_stress_stats` and `get_daily_body_battery_stats` return **HTTP 400 beyond 28 days** and the library does not chunk them, so the fetcher windows every source at 28 days and merges. A year of backfill is ~14 calls per source, not one failure.
 - **Dashboard reference:** [`arpanghosh8453/garmin-grafana`](https://github.com/arpanghosh8453/garmin-grafana) — a mature InfluxDB + Grafana implementation of this exact idea. Design notes, what to borrow, and the metric naming contract are in [`dashboards/README.md`](dashboards/README.md). Read that before writing any panel.
-- [x] Decide metrics. The full contract is in [`dashboards/README.md`](dashboards/README.md): a `garmin_daily_*` prefix for one-sample-per-day metrics, `garmin_activity_*` for per-workout, `garmin_exporter_*` for self-observability.
-  - Daily: steps, resting HR, sleep duration and score, stress, body battery, HRV, VO2 max
-  - Per activity: distance, duration, avg HR, calories
+- [x] Decide metrics. The full contract is in [`dashboards/README.md`](dashboards/README.md): a `garmin_daily_*` prefix for one-sample-per-day metrics, `garmin_activity_*` for per-workout, `garmin_exporter_*` for self-observability. Now trimmed to only what a real payload actually contains — no `device` label, no single `hrv_ms`, no `training_effect`.
 - [ ] **Risk:** it's unofficial, so Garmin can block or break it. Mitigation: low poll rate (every 15-30 min), cached tokens, and a Strava fallback noted in docs.
 
 ## 4. Phase 2: Exporter (week 1)
@@ -58,7 +61,7 @@ garmin-observability/
 - [x] Self-observability: metrics for run success, duration, API errors and last-success timestamp (this feeds an alert later)
 - [x] Structured logging, retry with backoff, a Garmin rate-limit guard
 - [x] Dockerfile: multi-stage, non-root, pinned deps
-- [ ] Tests: pytest on fixtures (49 tests, green), plus one integration test against a local VictoriaMetrics container
+- [ ] Tests: pytest on fixtures (87 tests, green), plus one integration test against a local VictoriaMetrics container
 
 ## 5. Phase 3: Local cluster (week 1-2)
 - [ ] `k3d cluster create` with a config file (same k3s as production)

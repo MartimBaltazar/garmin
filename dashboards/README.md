@@ -83,46 +83,92 @@ first.
 
 **Rules**
 
-- Namespace `garmin_`. OTLP names use dots (`garmin.daily.steps`); the `prometheusremotewrite`
-  exporter converts them to underscores. Never emit a pair of names that collide after that
-  conversion.
+- Namespace `garmin_`. The exporter emits **underscore** names directly, so the `prometheusremotewrite`
+  translation is a no-op: what is in this table is byte-for-byte what lands in VictoriaMetrics.
+  (Emitting dotted names would rely on that translation and silently break every recording rule.)
 - **`garmin_daily_*`** = exactly one sample per day, event-timestamped. Always query with a daily
   aggregation or a bar chart.
-- **`garmin_activity_*`** = one sample per workout, labelled `activity_type`.
+- **`garmin_activity_*`** = one sample per workout, labelled `activity_type` and `activity_id`.
 - **Intraday metrics carry no unbounded labels.** No per-sample IDs.
-- Units in the name: `_seconds`, `_meters`, `_ms`, `_bpm`, `_percent`. Bare names are counts.
+- Units in the name: `_seconds`, `_meters`, `_ms`, `_bpm`, `_percent`, `_ml`. Bare names are counts.
 - Timestamps are **event time**, not poll time. The backfill path guarantees this; the live OTLP path
   cannot (the SDK stamps at observation), so daily metrics are written by the backfill path.
+- **A metric only goes in this table once a real payload confirmed the field exists.** Several names
+  in an earlier draft (`device` labels, `training_effect`, `hrv_ms`) were guesses and have been
+  removed rather than left to silently produce nothing.
 
 **Daily (`garmin_daily_*`)**
 
+Verified against a real dump on 2026-10-29 — these are the names the exporter actually emits.
+
 | Metric | Unit | Labels |
 |---|---|---|
-| `garmin_daily_steps` | count | `device` |
-| `garmin_daily_resting_heart_rate` | bpm | `device` |
+| `garmin_daily_steps` | count | — |
+| `garmin_daily_steps_goal` | count | — |
+| `garmin_daily_distance_meters` | m | — |
+| `garmin_daily_floors` | count | — |
+| `garmin_daily_calories` | kcal | — |
+| `garmin_daily_calories_active` | kcal | — |
+| `garmin_daily_calories_resting` | kcal | — |
+| `garmin_daily_resting_heart_rate` | bpm | — |
+| `garmin_daily_heart_rate_min` | bpm | — |
+| `garmin_daily_heart_rate_max` | bpm | — |
+| `garmin_daily_stress_avg` | 0–100 | — |
+| `garmin_daily_stress_max` | 0–100 | — |
+| `garmin_daily_stress_duration_seconds` | s | `level` (rest/low/medium/high) |
+| `garmin_daily_intensity_minutes` | minutes | `kind` (moderate/vigorous) |
+| `garmin_daily_intensity_goal_minutes` | minutes | — |
+| `garmin_daily_body_battery_min` | 0–100 | — |
+| `garmin_daily_body_battery_max` | 0–100 | — |
+| `garmin_daily_body_battery_latest` | 0–100 | — |
+| `garmin_daily_respiration_avg` | breaths/min | — |
+| `garmin_daily_hydration_ml` | ml | — |
 | `garmin_daily_sleep_duration_seconds` | s | — |
 | `garmin_daily_sleep_score` | 0–100 | — |
 | `garmin_daily_deep_sleep_seconds` | s | — |
 | `garmin_daily_rem_sleep_seconds` | s | — |
-| `garmin_daily_stress_avg` | 0–100 | — |
-| `garmin_daily_body_battery_max` | 0–100 | — |
-| `garmin_daily_body_battery_min` | 0–100 | — |
-| `garmin_daily_hrv_ms` | ms | — |
-| `garmin_daily_vo2max` | ml/kg/min | `activity_type` |
-| `garmin_daily_calories` | kcal | `device` |
-| `garmin_daily_intensity_minutes` | minutes | — |
+| `garmin_daily_light_sleep_seconds` | s | — |
+| `garmin_daily_awake_sleep_seconds` | s | — |
+| `garmin_daily_sleep_respiration_avg` | breaths/min | — |
+| `garmin_daily_sleep_need_minutes` | minutes | — |
+| `garmin_daily_sleep_body_battery_change` | 0–100 | — |
+| `garmin_daily_hrv_last_night_ms` | ms | — |
+| `garmin_daily_hrv_weekly_avg_ms` | ms | — |
+| `garmin_daily_hrv_baseline_ms` | ms | — (null until Garmin has history) |
+| `garmin_daily_vo2max` | ml/kg/min | `sport` (generic/cycling) |
+
+Notes that change how panels are written:
+
+- **No `device` label.** Garmin's daily summary endpoint is per-user, not per-device, and inventing a
+  device tag would mean a second series that never gets a value.
+- **`sport`, not `activity_type`, on `garmin_daily_vo2max`.** VO2 max is not an activity.
+- **`intensity_minutes` is two series, not one.** Garmin counts vigorous minutes double toward the
+  goal, so summing them here would bake a policy into storage. `moderate` and `vigorous` are
+  published raw; the panel decides. Total = `moderate + 2×vigorous`.
+- **`hrv` is three series.** A single `garmin_daily_hrv_ms` would have to pick one of last-night,
+  weekly average or baseline, and all three are on the same panel.
+- **Deliberately absent: sleep-stage SpO2 and sleep stress.** They exist only in
+  `get_sleep_data`'s full per-day payload, which is one API call *per day* instead of one per 28
+  days. That is not worth two series.
+- **VO2 max and HRV baseline are sparse by nature.** They appear only on qualifying days, so use
+  `last_over_time(...[14d])` in the `stat` panels and never in a line panel.
 
 **Per activity (`garmin_activity_*`)** — labels: `activity_type`, `activity_id`
 
 | Metric | Unit |
 |---|---|
 | `garmin_activity_duration_seconds` | s |
+| `garmin_activity_moving_seconds` | s |
 | `garmin_activity_distance_meters` | m |
 | `garmin_activity_avg_heart_rate` | bpm |
 | `garmin_activity_max_heart_rate` | bpm |
 | `garmin_activity_calories` | kcal |
-| `garmin_activity_training_effect` | 0–5 |
+| `garmin_activity_aerobic_training_effect` | 0–5 |
+| `garmin_activity_anaerobic_training_effect` | 0–5 |
 | `garmin_activity_elevation_gain_meters` | m |
+
+There is no `garmin_activity_training_effect`: the real payload has two separate effects, aerobic and
+anaerobic, and collapsing them would lose the distinction between a steady run and a sprint set.
 
 `activity_id` is the one tolerated high-cardinality label: ~350 activities/year × 7 metrics ≈ 2.5k
 series/year, which VictoriaMetrics handles without noticing. It stays off intraday and daily metrics
@@ -142,10 +188,10 @@ regardless. It also powers the `$activity` template variable that replaces their
 | Metric | Unit | Notes |
 |---|---|---|
 | `garmin_exporter_last_success_timestamp_seconds` | s | Unix ts. The 6h alert reads this |
-| `garmin_exporter_run_success` | 0/1 | — |
-| `garmin_exporter_run_duration_seconds` | s | histogram |
-| `garmin_exporter_api_errors_total` | count | `kind` label (auth/rate_limit/network) |
-| `garmin_exporter_records_written_total` | count | sanity check on backfill |
+| `garmin_exporter_run_success` | 0/1 | The alert signal that works even when nothing was written |
+| `garmin_exporter_run_duration_seconds` | s | Gauge, not a histogram — one observation per run |
+| `garmin_exporter_samples_emitted` | count | A successful run emitting 0 is a bug |
+| `garmin_exporter_api_errors_total` | count | `kind` label (`auth_error`, `<source>:error`, …) |
 
 ## 6. Implementation notes
 
