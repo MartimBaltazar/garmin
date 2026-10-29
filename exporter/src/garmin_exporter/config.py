@@ -16,6 +16,36 @@ EMIT_MODES = ("otlp", "vm", "both", "none")
 DEFAULT_TOKENSTORE = Path("/var/lib/garmin/tokens")
 
 
+def _load_env_file() -> Path | None:
+    """Read a dotenv file into ``os.environ`` if one is present.
+
+    Rationale: ``cp .env.example .env`` is the first thing anyone does, and it
+    exports nothing. Requiring ``set -a; source .env; set +a`` is a footgun that
+    fails silently — the run just reports missing credentials.
+
+    Precedence is deliberate: an already-set environment variable always wins, so
+    a Kubernetes Secret always beats a stray ``.env`` baked into an image. The
+    file is a local-development convenience only.
+    """
+    explicit = os.environ.get("GARMIN_ENV_FILE")
+    candidates = [Path(explicit)] if explicit else [Path.cwd() / ".env", Path.cwd().parent / ".env"]
+
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        for raw_line in candidate.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip().removeprefix("export ").strip()
+            value = value.strip().strip("'\"")
+            if key and key not in os.environ:
+                os.environ[key] = value
+        return candidate
+    return None
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     return value if value not in (None, "") else default
@@ -57,6 +87,7 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
+        _load_env_file()
         emit = (_env("GARMIN_EMIT", "otlp") or "otlp").lower()
         if emit not in EMIT_MODES:
             raise ValueError(f"GARMIN_EMIT must be one of {EMIT_MODES}, got {emit!r}")

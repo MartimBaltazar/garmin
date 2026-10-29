@@ -12,15 +12,27 @@ JSON with no network, and the emitters can be swapped without touching I/O.
 
 ## Commands
 
+The package installs a `garmin-exporter` entrypoint **inside the virtualenv**, so
+it is not on your PATH unless you activate it. Two equivalent ways in:
+
+```bash
+# Option A: activate once per shell
+source .venv/bin/activate        # from the repo root
+cd exporter
+
+# Option B: don't activate, always go through make
+make help
+```
+
 ```bash
 # 1. Once, interactively. Handles MFA. Writes tokens to GARMIN_TOKENSTORE.
-garmin-exporter login
+garmin-exporter login          # or: make login
 
 # 2. Capture real payloads for one day -> verifies the transform field paths.
-garmin-exporter dump --date 2026-10-28 --out fixtures
+garmin-exporter dump --date 2026-10-28 --out fixtures   # or: make dump DATE=2026-10-28
 
 # 3. What the CronJob runs. Trailing window, pushed through the collector.
-garmin-exporter run
+garmin-exporter run            # or: make dry-run
 
 # 4. History. Always writes to VictoriaMetrics (OTLP cannot carry event times).
 garmin-exporter backfill --from 2026-04-01 --to 2026-10-01 --chunk-days 30
@@ -28,6 +40,17 @@ garmin-exporter backfill --from 2026-04-01 --to 2026-10-01 --chunk-days 30
 
 `--dry-run` logs samples instead of emitting, which is how to check the whole
 pipeline without a collector running.
+
+## Configuration: `.env` is loaded automatically
+
+`Config.from_env()` reads a dotenv file before looking at the environment, so
+`cp .env.example .env` is sufficient — no `source`, no `export`. It looks at
+`./.env`, then `../.env`, or at `$GARMIN_ENV_FILE` if set.
+
+**An already-set environment variable always wins.** That ordering is
+deliberate: a Kubernetes Secret must beat a stray `.env`, and a CronJob has no
+`.env` at all. The file is a local-development convenience.
+
 
 ## Why two emit paths
 
