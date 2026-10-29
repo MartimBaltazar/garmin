@@ -1,4 +1,4 @@
-.PHONY: help venv install test lint fmt image login dump dry-run backfill clean
+.PHONY: help venv install test lint fmt image config login dump dry-run backfill clean
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -18,6 +18,9 @@ venv: ## Create the virtualenv
 
 install: venv ## Install the exporter with dev deps
 	$(PY) -m pip install -e "exporter[dev]"
+
+config: ## Show resolved settings and which .env file was read
+	$(RUN) config
 
 login: ## Interactive Garmin login (needs GARMIN_EMAIL/GARMIN_PASSWORD in exporter/.env)
 	$(RUN) login

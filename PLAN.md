@@ -58,7 +58,7 @@ garmin-observability/
 - [x] Self-observability: metrics for run success, duration, API errors and last-success timestamp (this feeds an alert later)
 - [x] Structured logging, retry with backoff, a Garmin rate-limit guard
 - [x] Dockerfile: multi-stage, non-root, pinned deps
-- [ ] Tests: pytest on fixtures (34 tests, green), plus one integration test against a local VictoriaMetrics container
+- [ ] Tests: pytest on fixtures (49 tests, green), plus one integration test against a local VictoriaMetrics container
 
 ## 5. Phase 3: Local cluster (week 1-2)
 - [ ] `k3d cluster create` with a config file (same k3s as production)

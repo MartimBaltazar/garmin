@@ -46,6 +46,14 @@ def _load_env_file() -> Path | None:
     return None
 
 
+_ENV_FILE_USED: Path | None = None
+
+
+def loaded_env_file() -> Path | None:
+    """Which dotenv file was read, if any. Used by ``garmin-exporter config``."""
+    return _ENV_FILE_USED
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     return value if value not in (None, "") else default
@@ -87,7 +95,8 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Config:
-        _load_env_file()
+        global _ENV_FILE_USED
+        _ENV_FILE_USED = _load_env_file()
         emit = (_env("GARMIN_EMIT", "otlp") or "otlp").lower()
         if emit not in EMIT_MODES:
             raise ValueError(f"GARMIN_EMIT must be one of {EMIT_MODES}, got {emit!r}")

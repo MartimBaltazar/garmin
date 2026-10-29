@@ -139,8 +139,10 @@ def run_dump(cfg: Config, day: str, out_dir: Path) -> int:
     rather than samples, so the transform can be rewritten without refetching.
     """
     target = out_dir / day
-    target.mkdir(parents=True, exist_ok=True)
     payloads = Fetcher(cfg).fetch_range(day, day)
+    # Directory is created only after a successful fetch: a failed dump should
+    # not leave an empty directory that looks like it worked.
+    target.mkdir(parents=True, exist_ok=True)
     _write(target / "raw.json", payloads.to_dict())
     log.info(
         "dumped raw payloads",

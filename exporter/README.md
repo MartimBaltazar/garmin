@@ -25,6 +25,9 @@ make help
 ```
 
 ```bash
+# 0. Where am I? Which .env was read, which token store, is auth configured.
+garmin-exporter config         # or: make config
+
 # 1. Once, interactively. Handles MFA. Writes tokens to GARMIN_TOKENSTORE.
 garmin-exporter login          # or: make login
 
@@ -40,6 +43,11 @@ garmin-exporter backfill --from 2026-04-01 --to 2026-10-01 --chunk-days 30
 
 `--dry-run` logs samples instead of emitting, which is how to check the whole
 pipeline without a collector running.
+
+Every command except `config` and `login` checks for credentials *before*
+touching the network. If they are missing it prints the resolved paths and exits
+2 — no traceback, because "no cached tokens" is useless when you are staring at a
+correct-looking `.env` that was never read.
 
 ## Configuration: `.env` is loaded automatically
 
