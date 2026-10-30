@@ -37,7 +37,8 @@ garmin-exporter dump --date 2026-10-28 --out fixtures   # or: make dump DATE=202
 # 3. What the CronJob runs. Trailing window, pushed through the collector.
 garmin-exporter run            # or: make dry-run
 
-# 4. History. Always writes to VictoriaMetrics (OTLP cannot carry event times).
+# 4. History. Always writes to VictoriaMetrics directly (a bounded job, no
+#    Collector needed).
 garmin-exporter backfill --from 2026-04-01 --to 2026-10-01 --chunk-days 30
 ```
 
@@ -62,16 +63,44 @@ deliberate: a Kubernetes Secret must beat a stray `.env`, and a CronJob has no
 
 ## Why two emit paths
 
-The OTel Python SDK stamps metrics at **observation** time. That is fine for the
-live path but makes history impossible: backfilling yesterday would write
-yesterday's steps with today's timestamp. So the backfill path POSTs Prometheus
-exposition with an explicit timestamp to `/api/v1/import/prometheus`, which is
-also why re-running a backfill is idempotent — the timestamp is part of the
-series identity.
+Both paths write **event time**, and both are idempotent: a sample's timestamp
+is part of the series identity, so re-running overwrites the same point instead
+of appending a new one.
 
-Both paths consume the same `Sample` list and therefore produce identical
-series names and labels. They must; otherwise live and historical data form two
-separate series.
+- **Live path (OTLP → Collector → VictoriaMetrics).** The Collector is the
+  pipeline's spine: it batches, retries and keeps a write-ahead log, so a
+  VictoriaMetrics hiccup does not lose data.
+- **Backfill path (direct → VictoriaMetrics).** A bounded one-shot job that
+  writes history straight to `/api/v1/import/prometheus`. It skips the
+  Collector because it does not need one — it is a single request per chunk
+  with explicit timestamps.
+
+Both consume the same `Sample` list, so they produce identical series names,
+labels and timestamps. They must; otherwise a backfilled day and a live day
+would be two separate series.
+
+### Why the OTLP request is built by hand
+
+The OTel Python SDK's gauge API cannot express this pipeline's data model, so
+the exporter speaks the OTLP protocol directly (`otlp.py`):
+
+- **The SDK keeps one value per attribute set per collection** (last-value-wins
+  aggregation). A daily metric has one point per calendar day, so a two-day
+  lookback produces two points that share an attribute set — the SDK silently
+  kept only the last one and lost a day.
+- **The SDK stamps datapoints at call time.** `garmin_daily_steps` would land
+  in VictoriaMetrics 48 times a day (every 30-minute tick) instead of once at
+  00:00 UTC, and every daily panel in Grafana would be wrong.
+
+Setting `time_unix_nano` per datapoint fixes both, and it keeps the Collector a
+plain pass-through: no timestamp rewriting in the collector config, and no
+magic attribute that the two halves of the pipeline have to agree on.
+
+One consequence worth knowing: the Collector's `prometheusremotewrite`
+exporter converts `service.name` and `service.instance.id` into `job` and
+`instance` labels by default. That would give the OTLP-written series
+different labels from the backfilled ones — two series for the same metric —
+so the collector config excludes service attributes from label conversion.
 
 ## Field paths are verified, and the shapes are surprising
 

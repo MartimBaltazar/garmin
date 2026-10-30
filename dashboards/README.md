@@ -91,8 +91,10 @@ first.
 - **`garmin_activity_*`** = one sample per workout, labelled `activity_type` and `activity_id`.
 - **Intraday metrics carry no unbounded labels.** No per-sample IDs.
 - Units in the name: `_seconds`, `_meters`, `_ms`, `_bpm`, `_percent`, `_ml`. Bare names are counts.
-- Timestamps are **event time**, not poll time. The backfill path guarantees this; the live OTLP path
-  cannot (the SDK stamps at observation), so daily metrics are written by the backfill path.
+- Timestamps are **event time**, not poll time. Both paths guarantee it: the live path sets the
+  OTLP datapoint timestamp explicitly, and the backfill path writes an explicit Prometheus
+  timestamp. A sample's timestamp is part of the series identity, so re-running either path
+  overwrites the same points — `garmin_daily_*` is exactly one point per calendar day.
 - **A metric only goes in this table once a real payload confirmed the field exists.** Several names
   in an earlier draft (`device` labels, `training_effect`, `hrv_ms`) were guesses and have been
   removed rather than left to silently produce nothing.

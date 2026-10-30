@@ -16,8 +16,11 @@ dependencies = [
     "curl_cffi>=0.7",
     "httpx>=0.27",
     "tenacity>=9.0",
-    "opentelemetry-sdk>=1.27",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+    # The OTLP protocol is spoken directly (see garmin_exporter.otlp) because
+    # the SDK's gauge API cannot carry per-datapoint event timestamps, and the
+    # Collector is the only thing that needs to understand them.
+    "opentelemetry-proto>=1.27",
+    "grpcio>=1.60",
 ]
 
 [project.optional-dependencies]

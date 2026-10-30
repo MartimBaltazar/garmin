@@ -21,7 +21,12 @@ Cloudflare Access + Tunnel ◄── Grafana ◄──────────�
 vmbackup CronJob ──► Cloudflare R2
 ```
 
-**Note:** the OTel SDK stamps metrics with collection time, so it can't backfill history. Use OTel for the live path. Backfill writes straight to VictoriaMetrics (`/api/v1/import/prometheus` with explicit timestamps). It's a separate code path and worth a sentence in the README.
+**Note on timestamps:** the OTel Python SDK's gauge API stamps metrics at collection time and keeps
+only one value per attribute set, so it cannot express "one point per calendar day, stamped at
+00:00 UTC". The exporter therefore speaks the OTLP protocol directly and sets the datapoint
+timestamp itself. The Collector stays a pass-through. Backfill writes straight to VictoriaMetrics
+(`/api/v1/import/prometheus` with explicit timestamps) because it is a bounded one-shot job that
+does not need the Collector. Both paths are idempotent and write the same series.
 
 ## 2. Repo layout
 ```

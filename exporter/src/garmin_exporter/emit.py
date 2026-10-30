@@ -3,14 +3,17 @@
 Two paths, deliberately:
 
 * **OTLP** goes through the OTel Collector, which is what PLAN.md asks for and
-  what makes the pipeline observable. Its limitation is that the Python SDK
-  stamps metrics at *observation* time, so it cannot backfill.
+  what makes the pipeline observable. The datapoints carry the sample's own
+  event timestamp, so this path is idempotent too: re-running overwrites the
+  same points instead of appending new ones.
 * **VM import** POSTs Prometheus exposition with an explicit timestamp to
-  ``/api/v1/import/prometheus``. That is the only way to write real history, and
-  it is idempotent because the timestamp is part of the series identity.
+  ``/api/v1/import/prometheus``. This is what writes *history* -- a bounded
+  backfill job -- and it is the path to use when the Collector is not in the
+  way.
 
-The two must agree on names and labels or the backfilled history and the live
-data will form separate series. Both read from the same ``Sample`` list.
+Both write the same series: same names, same labels, same timestamps. The two
+paths differ only in transport, so a backfilled day and a live day are one
+series, not two.
 """
 
 from __future__ import annotations
@@ -89,52 +92,34 @@ class VmImportEmitter:
 
 
 class OtlpEmitter:
-    """Push gauges to the OTel Collector over OTLP/gRPC.
+    """Push samples to the OTel Collector over OTLP/gRPC.
 
-    A Gauge is created lazily per metric name and reused, because the SDK keys
-    instruments by name and creating one per batch would leak.
+    The SDK's gauge API cannot express this pipeline's data model (see
+    ``otlp`` for why), so the OTLP request is built directly. The Collector
+    stays a pass-through: it does not need to know about timestamps.
     """
 
     def __init__(
-        self, endpoint: str, *, insecure: bool = True, service_name: str = "garmin-exporter"
+        self,
+        endpoint: str,
+        *,
+        insecure: bool = True,
+        service_name: str = "garmin-exporter",
+        timeout: float = 15.0,
     ) -> None:
-        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        from opentelemetry.sdk.resources import Resource
+        from .otlp import OtlpExporter
 
-        exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
-        reader = PeriodicExportingMetricReader(
-            exporter,
-            # A CronJob's whole life is a few seconds; the explicit force_flush in
-            # close() is what actually ships the data. The interval just stops the
-            # reader firing mid-run.
-            export_interval_millis=60_000,
+        self._exporter = OtlpExporter(
+            endpoint, insecure=insecure, service_name=service_name, timeout=timeout
         )
-        self._provider = MeterProvider(
-            resource=Resource.create({"service.name": service_name}),
-            metric_readers=[reader],
-        )
-        self._meter = self._provider.get_meter("garmin_exporter")
-        self._gauges: dict[str, object] = {}
         self._endpoint = endpoint
 
-    def _gauge(self, name: str) -> object:
-        gauge = self._gauges.get(name)
-        if gauge is None:
-            gauge = self._meter.create_gauge(name)
-            self._gauges[name] = gauge
-        return gauge
-
     def emit(self, samples: Sequence[Sample]) -> None:
-        for item in samples:
-            gauge = self._gauge(item.name)
-            gauge.set(item.value, dict(item.labels))  # type: ignore[attr-defined]
+        self._exporter.export(samples)
 
     def close(self) -> None:
-        self._provider.force_flush()
-        self._provider.shutdown()
-        log.info("otlp flush complete", extra={"endpoint": self._endpoint})
+        self._exporter.close()
+        log.info("otlp export complete", extra={"endpoint": self._endpoint})
 
 
 def build_emitter(cfg: Config) -> Emitter:
