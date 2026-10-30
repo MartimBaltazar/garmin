@@ -1,0 +1,48 @@
+# The Collector is a pass-through: it receives OTLP, batches, retries and
+# writes to VictoriaMetrics. It does not interpret the data.
+#
+# One thing it must NOT do is add labels of its own. The Collector's
+# prometheus_remote_write exporter converts `service.name` and
+# `service.instance.id` into `job` and `instance` labels by default. The
+# backfill path writes straight to VictoriaMetrics and has no such labels --
+# so without this exclusion the same metric would exist as two different
+# series, and every dashboard would silently show only half the data.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+exporters:
+  prometheus_remote_write:
+    endpoint: http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write
+    resource_constant_labels:
+      included: []
+      excluded: ["*"]
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus_remote_write]
+  telemetry:
+    logs:
+      level: info

@@ -1,31 +1,33 @@
-# Bootstrap for local testing only. The Helm chart in Phase 4 supersedes this.
-# Apply after creating the token PVC and the credentials secret.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: garmin
----
+# The live exporter: every 30 minutes, fetch the trailing window and push it
+# over OTLP.
+#
+# No credentials in the cluster. The CronJob resumes from the token file on the
+# PVC; GARMIN_EMAIL/GARMIN_PASSWORD exist only for the one-off interactive
+# login, which needs a terminal to answer Garmin's MFA challenge. If the cached
+# tokens are ever rejected, the run fails loudly and the "no success in 6h"
+# alert fires -- which is the correct outcome, because a CronJob cannot answer
+# MFA anyway. See docs/runbook.md.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: garmin-tokens
   namespace: garmin
+  labels:
+    app.kubernetes.io/name: garmin-exporter
 spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
       storage: 64Mi
 ---
-# Create the secret from the .env file, never from a committed manifest:
-#   kubectl -n garmin create secret generic garmin-credentials --from-env-file=exporter/.env
-#
-# An emptySecretRef is not used on purpose: a missing secret should fail the pod
-# loudly rather than start an exporter that silently cannot authenticate.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: garmin-exporter
   namespace: garmin
+  labels:
+    app.kubernetes.io/name: garmin-exporter
+    app.kubernetes.io/part-of: garmin-observability
 spec:
   # Every 30 minutes. Garmin's own rate limiting, not this schedule, is the
   # real constraint; the exporter also enforces GARMIN_REQUEST_PAUSE_SECONDS.
@@ -50,16 +52,31 @@ spec:
             runAsGroup: 10001
             seccompProfile:
               type: RuntimeDefault
+          initContainers:
+            # The volume starts owned by root and the hostPath provisioner does
+            # not apply fsGroup, so the non-root container could not write the
+            # refreshed token file back.
+            - name: init-permissions
+              image: busybox:1.37.0
+              command: ["sh", "-c", "chown -R 10001:10001 /var/lib/garmin"]
+              securityContext:
+                runAsUser: 0
+                runAsNonRoot: false
+              volumeMounts:
+                - name: tokens
+                  mountPath: /var/lib/garmin
           containers:
             - name: exporter
-              image: ghcr.io/martimbaltazar/garmin-exporter:latest
+              # Built locally and loaded into minikube by `make image-load`.
+              # The Helm chart in Phase 4 replaces this with a registry image.
+              image: garmin-exporter:dev
+              imagePullPolicy: IfNotPresent
               args: ["run"]
-              envFrom:
-                - secretRef:
-                    name: garmin-credentials
               env:
                 - name: OTEL_EXPORTER_OTLP_ENDPOINT
                   value: http://otel-collector.garmin.svc.cluster.local:4317
+                - name: OTEL_EXPORTER_OTLP_INSECURE
+                  value: "true"
                 - name: GARMIN_EMIT
                   value: otlp
                 - name: GARMIN_TOKENSTORE
@@ -68,6 +85,10 @@ spec:
                   value: "2"
                 - name: GARMIN_REQUEST_PAUSE_SECONDS
                   value: "1.5"
+                - name: GARMIN_VM_URL
+                  value: http://victoriametrics.garmin.svc.cluster.local:8428
+                - name: LOG_LEVEL
+                  value: INFO
               volumeMounts:
                 - name: tokens
                   mountPath: /var/lib/garmin

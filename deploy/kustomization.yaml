@@ -1,0 +1,21 @@
+# Local development deployment. Phase 4 replaces this with a Helm chart, but
+# these manifests are the contract: if the Helm chart cannot reproduce them,
+# the chart is wrong.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: garmin
+
+resources:
+  - 00-namespace.yaml
+  - 10-victoriametrics.yaml
+  - 20-otel-collector.yaml
+  - 30-grafana.yaml
+  - 40-exporter-cronjob.yaml
+
+configMapGenerator:
+  # The generated name carries a content hash, so a config change rolls the
+  # Collector instead of leaving the previous config running.
+  - name: otel-collector-config
+    files:
+      - collector.yaml=config/collector.yaml

@@ -1,0 +1,83 @@
+# One-shot backfill. `make backfill FROM=2026-10-12 TO=2026-10-29` renders the
+# __FROM__/__TO__ placeholders and applies this.
+#
+# It writes straight to VictoriaMetrics, not through the Collector: a backfill
+# is a bounded job with explicit timestamps, and the Collector has nothing to
+# add to it.
+#
+# Idempotent by construction. A sample's timestamp is part of its series
+# identity, so re-running overwrites the same points instead of duplicating
+# them.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garmin-backfill
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: garmin-exporter
+    app.kubernetes.io/part-of: garmin-observability
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 3600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: garmin-exporter
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: init-permissions
+          image: busybox:1.37.0
+          command: ["sh", "-c", "chown -R 10001:10001 /var/lib/garmin"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: tokens
+              mountPath: /var/lib/garmin
+      containers:
+        - name: exporter
+          image: garmin-exporter:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - backfill
+            - --from
+            - "__FROM__"
+            - --to
+            - "__TO__"
+          env:
+            - name: GARMIN_EMIT
+              value: vm
+            - name: GARMIN_VM_URL
+              value: http://victoriametrics.garmin.svc.cluster.local:8428
+            - name: GARMIN_TOKENSTORE
+              value: /var/lib/garmin/tokens
+            - name: GARMIN_REQUEST_PAUSE_SECONDS
+              value: "1.5"
+            - name: LOG_LEVEL
+              value: INFO
+          volumeMounts:
+            - name: tokens
+              mountPath: /var/lib/garmin
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tokens
+          persistentVolumeClaim:
+            claimName: garmin-tokens

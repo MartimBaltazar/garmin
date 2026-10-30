@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: garmin-token-seed
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: garmin-exporter
+spec:
+  restartPolicy: Never
+  # Runs as root on purpose: it writes the token file and then chowns it to
+  # the exporter's uid. The exporter itself never runs as root.
+  containers:
+    - name: seed
+      image: busybox:1.37.0
+      command: ["sleep", "600"]
+      volumeMounts:
+        - name: tokens
+          mountPath: /tokens
+  volumes:
+    - name: tokens
+      persistentVolumeClaim:
+        claimName: garmin-tokens

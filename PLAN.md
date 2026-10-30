@@ -69,14 +69,16 @@ garmin-observability/
 - [ ] Tests: pytest on fixtures (87 tests, green), plus one integration test against a local VictoriaMetrics container
 
 ## 5. Phase 3: Local cluster (week 1-2)
-- [ ] `k3d cluster create` with a config file (same k3s as production)
-- [ ] Deploy VictoriaMetrics single-node, OTel Collector, Grafana
-- [ ] **Set `-retentionPeriod` explicitly** (e.g. `10y`). The default is 1 month and would silently drop your backfill.
-- [ ] Credentials as a Kubernetes Secret created from env at deploy time (`kubectl create secret ... --from-env-file`, git-ignored). **Never commit credentials.**
-- [x] CronJobs: live exporter (`hack/exporter-cronjob.yaml`, `*/30 * * * *`)
-- [ ] A one-shot backfill Job (currently run via `garmin-exporter backfill` from the CLI or `kubectl create job --from=cronjob/...`)
-- [ ] Persistent volumes for VictoriaMetrics and Grafana
-- [ ] `make up / down / backfill / test` targets
+- [x] **Local cluster: minikube, not k3d.** k3d was the original choice for k3s parity with the Oracle target, but minikube was already installed with a working profile, k3d was not, and every manifest here is vanilla Kubernetes -- no k3s-specific CRDs, no Traefik, no k3s ingress. The parity argument only starts to pay off in Phase 7, and it costs nothing to switch then: the manifests are the same either way. The manifests in `deploy/` are the contract the Phase 4 Helm chart has to reproduce.
+  - Every `kubectl` call in the Makefile names `--context minikube` explicitly. The machine's ambient context is an EKS cluster, and a stray `kubectl apply` must never be able to reach it.
+- [x] Deploy VictoriaMetrics single-node, OTel Collector, Grafana (`deploy/`, applied with `make up`)
+- [x] **Set `-retentionPeriod` explicitly** (`10y`). The default is 1 month and would silently drop your backfill. Verified against the running pod's `/proc/1/cmdline`.
+- [x] **No credentials in the cluster at all.** The CronJob resumes from the token file on a PVC; `GARMIN_EMAIL`/`GARMIN_PASSWORD` are only for the one-off interactive login, which needs a terminal to answer Garmin's MFA challenge. If the cached tokens are ever rejected the run fails loudly and the "no success in 6h" alert fires -- the correct outcome, since a CronJob cannot answer MFA anyway. The Grafana admin password is a Secret created by `make secret`, never committed.
+- [x] CronJobs: live exporter (`deploy/40-exporter-cronjob.yaml`, `*/30 * * * *`)
+- [x] A one-shot backfill Job (`deploy/50-backfill-job.yaml`, rendered by `make cluster-backfill FROM= TO=`)
+- [x] Persistent volumes for VictoriaMetrics, Grafana and the exporter's token store
+- [x] `make up / down / backfill / test / query / logs / grafana` targets
+- [ ] **End-to-end verification**: exporter → Collector → VictoriaMetrics, and the event timestamps and label sets of the resulting series
 
 ## 6. Phase 4: Helm chart (week 2)
 - [ ] Own chart for the exporter and CronJobs, with `values.yaml` for local and `values-prod.yaml`
