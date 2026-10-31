@@ -27,7 +27,7 @@
     "list": []
   },
   "time": {
-    "from": "now-28d",
+    "from": "now-14d",
     "to": "now"
   },
   "timezone": "utc",
@@ -244,7 +244,26 @@
             "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "auto"
-          }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 55
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          },
+          "min": 30,
+          "max": 80
         },
         "overrides": []
       },
@@ -253,7 +272,8 @@
           "displayMode": "list",
           "placement": "bottom"
         }
-      }
+      },
+      "description": "Resting heart rate for each day. Lower is generally better; Garmin updates overnight so today is partial."
     },
     {
       "id": 5,
@@ -272,38 +292,74 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "garmin_daily_body_battery_max",
-          "legendFormat": "max"
+          "expr": "garmin_daily_body_battery_latest",
+          "legendFormat": "latest"
         },
         {
           "refId": "B",
-          "expr": "garmin_daily_body_battery_min",
-          "legendFormat": "min"
-        },
-        {
-          "refId": "C",
-          "expr": "garmin_daily_body_battery_latest",
-          "legendFormat": "latest"
+          "expr": "garmin_daily_body_battery_max",
+          "legendFormat": "daily max"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "min": 0,
           "max": 100,
+          "unit": "none",
           "custom": {
-            "fillOpacity": 10,
+            "fillOpacity": 12,
             "lineWidth": 2,
             "showPoints": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "daily max"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "dark-gray"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
           "displayMode": "list",
           "placement": "bottom"
         }
-      }
+      },
+      "description": "Body battery: latest reading (solid) vs daily max (dashed reference). 0-100 scale."
     },
     {
       "id": 6,
@@ -719,6 +775,10 @@
                 "value": null
               },
               {
+                "color": "yellow",
+                "value": 55
+              },
+              {
                 "color": "red",
                 "value": 70
               }
@@ -737,7 +797,13 @@
         },
         "colorMode": "background",
         "graphMode": "none",
-        "textMode": "value"
+        "textMode": "value",
+        "sparkline": {
+          "show": true,
+          "fillOpacity": 20,
+          "lineWidth": 2,
+          "showPoints": "auto"
+        }
       },
       "description": "Resting HR of the most recent day. Garmin updates this overnight, so mid-day it lags one day."
     },
