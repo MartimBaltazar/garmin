@@ -49,10 +49,21 @@ spec:
               memory: 128Mi
             limits:
               memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           volumeMounts:
             - name: config
               mountPath: /conf
+            # Zub components snapshot state under the working dir; everything
+            # the Collector writes goes here, keeping the root filesystem read.
+            - name: tmp
+              mountPath: /tmp
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: config
           configMap:
             # The name carries a content hash (kustomize's configMapGenerator),

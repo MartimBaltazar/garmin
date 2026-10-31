@@ -118,6 +118,11 @@ spec:
               value: warn
             - name: GF_PATHS_PROVISIONING
               value: /etc/grafana/provisioning
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           ports:
             - name: http
               containerPort: 3000
@@ -142,6 +147,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/grafana
+            - name: tmp
+              mountPath: /tmp
             - name: provisioning
               mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
               subPath: datasources.yaml
@@ -154,6 +161,8 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: grafana-data
+        - name: tmp
+          emptyDir: {}
         - name: provisioning
           configMap:
             name: grafana-provisioning
