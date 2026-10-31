@@ -18,7 +18,7 @@
   "schemaVersion": 39,
   "tags": ["garmin", "health"],
   "templating": { "list": [] },
-  "time": { "from": "now-30d", "to": "now" },
+  "time": { "from": "now-28d", "to": "now" },
   "timezone": "utc",
   "title": "Garmin Health",
   "uid": "garmin-health",
@@ -65,7 +65,8 @@
         "colorMode": "background",
         "graphMode": "none",
         "textMode": "value"
-      }
+      },
+      "description": "Latest known day. Today's bar rises during the day, so a low number before midnight is normal."
     },
     {
       "id": 2,
