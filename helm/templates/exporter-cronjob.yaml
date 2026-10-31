@@ -1,0 +1,87 @@
+{{/* Exporter: token PVC + CronJob. No credentials in the cluster; run resumes from the token store. */}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-garmin-tokens
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: garmin-exporter
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.exporter.storage }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}-garmin-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: garmin-exporter
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.exporter.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: {{ .Values.exporter.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.exporter.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.exporter.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.exporter.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: garmin-exporter
+        spec:
+          restartPolicy: Never
+          securityContext:
+            {{- include "garmin.podSecurityContext" . | nindent 10 }}
+            runAsUser: 10001
+            runAsGroup: 10001
+          initContainers:
+            # Same hostPath-provisioner caveat as the VM data volume.
+            - name: init-permissions
+              image: busybox:1.37.0
+              command: ["sh", "-c", "chown -R 10001:10001 /var/lib/garmin/tokens"]
+              securityContext:
+                runAsUser: 0
+                runAsNonRoot: false
+              volumeMounts:
+                - name: tokens
+                  mountPath: /var/lib/garmin/tokens
+          containers:
+            - name: exporter
+              image: "{{ .Values.exporter.repository }}:{{ .Values.exporter.tag }}"
+              imagePullPolicy: {{ .Values.exporter.imagePullPolicy }}
+              args: ["run"]
+              env:
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: {{ include "garmin.otlpEndpoint" . }}
+                - name: OTEL_EXPORTER_OTLP_INSECURE
+                  value: "true"
+                - name: GARMIN_EMIT
+                  value: otlp
+                - name: GARMIN_TOKENSTORE
+                  value: /var/lib/garmin/tokens
+                - name: GARMIN_LOOKBACK_DAYS
+                  value: {{ .Values.exporter.lookbackDays | quote }}
+                - name: GARMIN_REQUEST_PAUSE_SECONDS
+                  value: {{ .Values.exporter.requestPauseSeconds | quote }}
+                - name: GARMIN_VM_URL
+                  value: {{ include "garmin.vmUrl" . }}
+                - name: LOG_LEVEL
+                  value: {{ .Values.exporter.logLevel }}
+              volumeMounts:
+                - name: tokens
+                  mountPath: /var/lib/garmin/tokens
+              resources: {{- toYaml .Values.exporter.resources | nindent 16 }}
+              securityContext:
+                {{- include "garmin.containerSecurityContext" . | nindent 16 }}
+          volumes:
+            - name: tokens
+              persistentVolumeClaim:
+                claimName: {{ .Release.Name }}-garmin-tokens

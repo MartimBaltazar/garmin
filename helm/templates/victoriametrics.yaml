@@ -1,0 +1,110 @@
+{{/* VictoriaMetrics: Deployment + PVC + Service. Mirrors deploy/10-victoriametrics.yaml. */}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-victoriametrics-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: victoriametrics
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.victoriametrics.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-victoriametrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: victoriametrics
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoriametrics
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoriametrics
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        {{- include "garmin.podSecurityContext" . | nindent 8 }}
+        runAsUser: 1000
+        runAsGroup: 1000
+      initContainers:
+        # The hostPath provisioner does not apply fsGroup, so the non-root main
+        # container could not write to a root-owned volume. Same pattern as
+        # deploy/ and as the token PVC init container.
+        - name: init-permissions
+          image: busybox:1.37.0
+          command: ["sh", "-c", "chown -R 1000:1000 /victoria-metrics-data"]
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+      containers:
+        - name: victoriametrics
+          image: {{ .Values.victoriametrics.image }}
+          args:
+            - -storageDataPath=/victoria-metrics-data
+            - -retentionPeriod={{ .Values.victoriametrics.retentionPeriod }}
+            - -httpListenAddr=:8428
+            - -loggerOutput=stdout
+            - -loggerLevel=INFO
+          ports:
+            - name: http
+              containerPort: 8428
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources: {{- toYaml .Values.victoriametrics.resources | nindent 12 }}
+          securityContext:
+            {{- include "garmin.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-victoriametrics-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-victoriametrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: victoriametrics
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: victoriametrics
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 8428
+      targetPort: http

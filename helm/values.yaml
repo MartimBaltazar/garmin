@@ -1,0 +1,49 @@
+# Chart values. Every knob that differs between environments lives here; the
+# templates stay structural. Defaults match deploy/ (kustomize) -- the chart
+# must be able to reproduce those manifests exactly.
+namespace: garmin
+
+victoriametrics:
+  image: victoriametrics/victoria-metrics:v1.155.0
+  # 10y so a multi-year backfill is never silently truncated to a default
+  # retention window.
+  retentionPeriod: 10y
+  storage: 10Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+otelcollector:
+  image: otel/opentelemetry-collector-contrib:0.164.0
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+grafana:
+  image: grafana/grafana:13.3.0
+  storage: 2Gi
+  # Reference to an existing Secret; never set a password here.
+  adminSecretName: grafana-credentials
+  adminSecretKey: password
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+exporter:
+  # Local builds stay on :dev and load into the node by hand (make image-load).
+  # Set image.repository+.tag to a registry image for anything non-local.
+  repository: garmin-exporter
+  tag: dev
+  imagePullPolicy: IfNotPresent
+  schedule: "*/30 * * * *"
+  storage: 64Mi
+  lookbackDays: "2"
+  requestPauseSeconds: "1.5"
+  logLevel: INFO
+  activeDeadlineSeconds: 600
+  backoffLimit: 1
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 256Mi }

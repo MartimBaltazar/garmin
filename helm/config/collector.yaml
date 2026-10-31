@@ -1,0 +1,61 @@
+# The Collector is a pass-through: it receives OTLP, batches, retries and
+# writes to VictoriaMetrics. It does not interpret the data.
+#
+# One thing it must NOT do is add labels of its own. The Collector's
+# prometheus_remote_write exporter converts `service.name` and
+# `service.instance.id` into `job` and `instance` labels by default. The
+# backfill path writes straight to VictoriaMetrics and has no such labels --
+# so without this exclusion the same metric would exist as two different
+# series, and every dashboard would silently show only half the data.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+exporters:
+  prometheus_remote_write:
+    http:
+      endpoint: http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write
+      insecure: true
+    # Without this, every series gains `otel_scope_name` and
+    # `otel_scope_version` labels. The backfill path writes the same metrics
+    # without them, so the two paths would produce two different series for
+    # every metric and every dashboard would show half the data.
+    disable_scope_info: true
+    # There is deliberately NO `job`/`instance` label on these series.
+    #
+    # The Prometheus translation in the Collector adds `job` from
+    # `service.name` and `instance` from `service.instance.id` whenever the
+    # OTLP resource carries them, and no collector setting suppresses it --
+    # `resource_constant_labels` and the deprecated
+    # `resource_to_telemetry_conversion` only govern the *other* resource
+    # attributes. So the exporter sends an empty resource instead. The metric
+    # names already carry the namespace.
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus_remote_write]
+  telemetry:
+    logs:
+      level: info

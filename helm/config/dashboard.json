@@ -1,0 +1,328 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": ["garmin", "health"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timezone": "utc",
+  "title": "Garmin Health",
+  "uid": "garmin-health",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Steps today (UTC day)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "randomWalk",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "max(garmin_daily_steps)",
+          "legendFormat": "steps"
+        },
+        {
+          "refId": "B",
+          "queryType": "randomWalk",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "max(garmin_daily_steps_goal)",
+          "legendFormat": "goal"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 5000 },
+              { "color": "green", "value": 10000 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Exporter staleness (seconds since last successful run)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(garmin_exporter_last_success_timestamp_seconds)",
+          "legendFormat": "age"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 4500 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Exporter API errors (last 7d)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(garmin_exporter_api_errors_total[7d]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Resting heart rate (bpm)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_resting_heart_rate",
+          "legendFormat": "rhr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "auto" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 5,
+      "title": "Body battery",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_body_battery_max",
+          "legendFormat": "max"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_body_battery_min",
+          "legendFormat": "min"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_body_battery_latest",
+          "legendFormat": "latest"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "auto" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 6,
+      "title": "Sleep by stage (hours)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_deep_sleep_seconds / 3600",
+          "legendFormat": "deep"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_light_sleep_seconds / 3600",
+          "legendFormat": "light"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_rem_sleep_seconds / 3600",
+          "legendFormat": "rem"
+        },
+        {
+          "refId": "D",
+          "expr": "garmin_daily_awake_sleep_seconds / 3600",
+          "legendFormat": "awake"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 7,
+      "title": "Active calories & intensity minutes",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_calories_active",
+          "legendFormat": "active kcal"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_intensity_minutes",
+          "legendFormat": "all intensity min"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_intensity_goal_minutes",
+          "legendFormat": "goal min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "showPoints": "auto" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 8,
+      "title": "HRV (ms)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_hrv_last_night_ms",
+          "legendFormat": "last night"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_hrv_baseline_ms",
+          "legendFormat": "baseline"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_hrv_weekly_avg_ms",
+          "legendFormat": "weekly avg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "auto" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "id": 9,
+      "title": "Stress & respiration",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_stress_avg",
+          "legendFormat": "stress avg"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_stress_max",
+          "legendFormat": "stress max"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_respiration_avg",
+          "legendFormat": "respiration brpm"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "auto" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    }
+  ]
+}
