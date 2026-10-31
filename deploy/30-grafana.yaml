@@ -62,20 +62,6 @@ data:
           path: /var/lib/grafana/dashboards
           foldersFromFilesStructure: false
 ---
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: grafana-dashboards
-  namespace: garmin
-  labels:
-    app.kubernetes.io/name: grafana
-data:
-  # Dashboards are added in Phase 5. An empty provider is valid: Grafana just
-  # finds no dashboards until the first one lands here.
-  README.md: |
-    Dashboard JSON files are mounted into /var/lib/grafana/dashboards.
-    See dashboards/README.md for the metric naming contract.
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:

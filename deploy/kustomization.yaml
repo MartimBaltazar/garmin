@@ -19,3 +19,15 @@ configMapGenerator:
   - name: otel-collector-config
     files:
       - collector.yaml=config/collector.yaml
+  # Dashboards are generated from files too. The Grafana Deployment mounts a
+  # ConfigMap with this exact name, so the hash suffix must be off -- dashboards
+  # mount into a directory, and a name change would leave the old mount
+  # dangling rather than rolling the Deployment. (New dashboard *data* still
+  # reaches Grafana because the file provider rescans every 30s.)
+  - name: grafana-dashboards
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: grafana
+    files:
+      - dashboard.json=config/dashboard-garmin.json
