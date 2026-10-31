@@ -363,7 +363,6 @@ def hrv_samples(payload: Any) -> list[Sample]:
 
 def vo2max_samples(payload: Any) -> list[Sample]:
     """get_max_metrics_range -> [{generic: {...}, cycling: null, ...}].
-
     The date lives inside each sport block, not on the wrapper, and entries only
     exist on days with a qualifying activity — VO2 max is sparse by nature, not
     every day.
@@ -390,6 +389,93 @@ def vo2max_samples(payload: Any) -> list[Sample]:
                 "garmin_daily_vo2max",
             )
     _report("vo2max", out)
+    return out.samples
+
+
+# --------------------------------------------------------------------------- #
+# Intraday series: heart rate, stress, body battery, respiration, steps
+#
+# These come from the wellness endpoints (``get_heart_rates`` et al.), one day
+# per request, as ``[[epoch_ms, value], ...]`` arrays or, for steps, a list of
+# ``{"startGMT": ..., "steps": n}`` 15-minute buckets. The arrays are already
+# event-time; no date attribution is needed. Garmin omits readings it has no
+# signal for (``None`` in the second slot) — those become absent datapoints,
+# which is the sample model's contract.
+# --------------------------------------------------------------------------- #
+def _epoch_ms_of(entry: Any) -> datetime | None:
+    """Parse ``[[epoch_ms, value], ...]`` array timestamps."""
+    if (
+        isinstance(entry, (list, tuple))
+        and entry
+        and isinstance(entry[0], (int, float))
+        and entry[0] > 0
+    ):
+        return datetime.fromtimestamp(entry[0] / 1000, tz=UTC)
+    return None
+
+
+def _array_samples(payload: Any, key: str, name: str, slot: int = 1) -> list[Sample]:
+    out = _Collector()
+    for entry in as_list(payload, key):
+        ts = _epoch_ms_of(entry)
+        if ts is None:
+            continue
+        value = entry[slot] if isinstance(entry, (list, tuple)) and len(entry) > slot else None
+        out.add(sample(name, value, ts), name)
+    _report(f"intraday:{key}", out)
+    return out.samples
+
+
+def intraday_heart_rate_samples(payload: Any) -> list[Sample]:
+    """get_heart_rates -> {'heartRateValues': [[epoch_ms, bpm], ...]}."""
+    return _array_samples(payload, "heartRateValues", "garmin_heart_rate")
+
+
+def intraday_stress_samples(payload: Any) -> list[Sample]:
+    """get_stress_data -> {'stressValuesArray': [...], 'bodyBatteryValuesArray': [...]}.
+
+    One endpoint feeds two intraday series: stress levels and body battery.
+    Slot layout: stress ``[epoch_ms, level]``, body battery
+    ``[epoch_ms, feed_delta, level]`` (slot 2 is what the Garmin UI plots).
+    """
+    return [
+        *_array_samples(payload, "stressValuesArray", "garmin_stress"),
+        *_array_samples(payload, "bodyBatteryValuesArray", "garmin_body_battery", slot=2),
+    ]
+
+
+def intraday_respiration_samples(payload: Any) -> list[Sample]:
+    """get_respiration_data -> {'respirationValuesArray': [[epoch_ms, brpm], ...]}."""
+    return _array_samples(payload, "respirationValuesArray", "garmin_respiration")
+
+
+def intraday_steps_samples(payload: Any) -> list[Sample]:
+    """get_steps_data -> [{'startGMT': ts, 'steps': n}, ...] 15-minute buckets.
+
+    Emits a **cumulative** ramp per calendar day (``garmin_steps_cumulative``):
+    the Apple-Watch-style stair curve, and the form where the 15-minute buckets
+    say the most -- how today is tracking versus yesterday. Interval counts are
+    derivable downstream (``non_negative_derivative``) if anyone wants them, but
+    a per-bucket absolute series would make multi-day charts unreadable.
+    """
+    out = _Collector()
+    entries: list[tuple[datetime, float]] = []
+    for item in as_list(payload):
+        if not isinstance(item, dict):
+            continue
+        ts = _instant(item, "startGMT", "startTimestampGMT")
+        steps = _first(item, "steps")
+        if ts is None or steps is None:
+            continue
+        entries.append((ts, float(steps)))
+    entries.sort(key=lambda pair: pair[0])
+
+    by_day: dict[str, float] = {}
+    for ts, steps in entries:
+        day = ts.date().isoformat()
+        by_day[day] = by_day.get(day, 0.0) + steps
+        out.add(sample("garmin_steps_cumulative", by_day[day], ts), "garmin_steps_cumulative")
+    _report("intraday:steps", out)
     return out.samples
 
 
@@ -445,6 +531,10 @@ _HANDLERS = {
     "body_battery": body_battery_samples,
     "hrv": hrv_samples,
     "vo2max": vo2max_samples,
+    "intraday_hr": intraday_heart_rate_samples,
+    "intraday_stress": intraday_stress_samples,
+    "intraday_respiration": intraday_respiration_samples,
+    "intraday_steps": intraday_steps_samples,
 }
 
 

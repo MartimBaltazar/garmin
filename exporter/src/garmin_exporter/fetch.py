@@ -67,6 +67,19 @@ SOURCES: tuple[Source, ...] = (
     Source("vo2max", "get_max_metrics_range"),
 )
 
+#: Intraday endpoints. Garmin serves these **one day per call** (span_days=1),
+#: with millisecond-epoch arrays inside. Compared with the daily sources above
+#: these produce ~100x the samples, which is the granularity the dashboards'
+#: minute-resolution panels need. Intraday history older than ~6 months is in
+#: Garmin's cold storage and unavailable to these endpoints -- the daily
+#: summaries above remain available for any age.
+INTRADAY_SOURCES: tuple[Source, ...] = (
+    Source("intraday_hr", "get_heart_rates", span_days=1),
+    Source("intraday_stress", "get_stress_data", span_days=1),
+    Source("intraday_respiration", "get_respiration_data", span_days=1),
+    Source("intraday_steps", "get_steps_data", span_days=1),
+)
+
 ACTIVITY_SOURCE = "get_activities_by_date"
 
 
@@ -133,14 +146,17 @@ class Fetcher:
     def fetch_range(self, start: str, end: str) -> RawPayloads:
         payloads = RawPayloads(start=start, end=end)
 
-        for source in SOURCES:
+        for source in (*SOURCES, *INTRADAY_SOURCES):
             if not hasattr(self.client, source.method):
                 log.warning("method missing on client, skipping", extra={"method": source.method})
                 payloads.errors[f"{source.key}:missing_method"] += 1
                 continue
             try:
                 chunks = [
-                    self.call(source.method, window_start, window_end)
+                    self.call(
+                        source.method,
+                        *(window_start,) if source.span_days == 1 else (window_start, window_end),
+                    )
                     for window_start, window_end in iter_windows(start, end, source.span_days)
                 ]
                 payloads.sources[source.key] = merge_chunks(chunks)
