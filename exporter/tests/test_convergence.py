@@ -22,8 +22,7 @@ def _datapoint_labels(request, metric_name):
     metrics = request.resource_metrics[0].scope_metrics[0].metrics
     metric = next(m for m in metrics if m.name == metric_name)
     return tuple(
-        tuple(sorted((kv.key, kv.value) for kv in dp.attributes))
-        for dp in metric.gauge.data_points
+        tuple(sorted((kv.key, kv.value) for kv in dp.attributes)) for dp in metric.gauge.data_points
     )
 
 

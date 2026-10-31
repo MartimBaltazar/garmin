@@ -1,0 +1,44 @@
+# CI: exporter tests, lint, and deploy-artifact validation.
+#
+# The test suite already contains the load-bearing assertions (label
+# convergence, collector-config pass-through); this workflow makes them run on
+# every push instead of locally. Deployment to minikube stays a manual
+# `make up` on the dev machine -- CI has no credentials for Garmin and must
+# never acquire any.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  exporter:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: exporter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # ruff and mypy ship in the dev extra; run them here so style and type
+      # drift fail the build rather than the next local session.
+      - run: uv run --extra dev ruff check . && uv run --extra dev ruff format --check .
+      - run: uv run --extra dev mypy src
+      - run: uv run --extra dev pytest -q
+
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Client-side validation only: build the kustomize bundle and render the
+      # chart, and parse the dashboard JSON. No cluster is involved.
+      - run: |
+          kubectl kustomize deploy > /tmp/bundle.yaml
+          grep -c "kind: CronJob" /tmp/bundle.yaml
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.1.3
+      - run: helm lint helm
+      - run: helm template garmin helm > /tmp/chart.yaml
+      - name: dashboard JSON is valid
+        run: python3 -m json.tool deploy/config/dashboard-garmin.json > /dev/null

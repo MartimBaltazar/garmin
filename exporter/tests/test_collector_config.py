@@ -19,9 +19,7 @@ from functools import cache
 
 import yaml
 
-CONFIG = (
-    pathlib.Path(__file__).parents[2] / "deploy" / "config" / "collector.yaml"
-)
+CONFIG = pathlib.Path(__file__).parents[2] / "deploy" / "config" / "collector.yaml"
 
 
 @cache
@@ -30,9 +28,7 @@ def _config() -> dict:
 
 
 def _remote_write_exporters() -> list[dict]:
-    return [
-        v for k, v in _config()["exporters"].items() if "prometheusremotewrite" in k
-    ]
+    return [v for k, v in _config()["exporters"].items() if "prometheusremotewrite" in k]
 
 
 def test_the_config_file_exists() -> None:
@@ -57,7 +53,5 @@ def test_the_exporter_side_stays_empty() -> None:
     from garmin_exporter.models import sample
     from garmin_exporter.otlp import build_request
 
-    request = build_request(
-        [sample("garmin_daily_steps", 1, datetime(2026, 10, 28, tzinfo=UTC))]
-    )
+    request = build_request([sample("garmin_daily_steps", 1, datetime(2026, 10, 28, tzinfo=UTC))])
     assert dict(request.resource_metrics[0].resource.attributes) == {}
