@@ -262,6 +262,66 @@ def sleep_samples(payload: Any) -> list[Sample]:
     return out.samples
 
 
+_STAGES = {0: "deep", 1: "light", 2: "rem", 3: "awake"}
+
+
+def _sleep_combined(payload: Any) -> list[Sample]:
+    """The sleep endpoint feeds three families of series at different grains."""
+    return [*sleep_samples(payload), *sleep_stage_samples(payload), *spo2_samples(payload)]
+
+
+def sleep_stage_samples(payload: Any) -> list[Sample]:
+    """get_sleep_data -> {'sleepLevels': [{'startGMT','endGMT','activityLevel'}, ...]}.
+
+    Each sleep-stage segment becomes `garmin_sleep_stage` stamped at the
+    segment start with the stage label: this is what a state-timeline panel
+    plots. The last segment is duplicated at its end time, so a stage does not
+    visually truncate if the next one starts after it (the same trick the
+    upstream project applies for the identical reason).
+    """
+    out = _Collector()
+    for item in as_list(payload, "sleepLevels"):
+        if not isinstance(item, dict):
+            continue
+        level = item.get("activityLevel")
+        start = _instant(item, "startGMT", "startTimeGMT", "startTimestampGMT")
+        end = _instant(item, "endGMT", "endTimeGMT", "endTimestampGMT")
+        if level is None or start is None:
+            out.note_missing("sleep:no_segment")
+            continue
+        stage = _STAGES.get(int(level))
+        if stage is None:
+            continue
+        out.add(
+            sample("garmin_sleep_stage", float(level), start, stage=stage), "garmin_sleep_stage"
+        )
+        if end is not None and end > start:
+            out.add(
+                sample("garmin_sleep_stage", float(level), end, stage=stage), "garmin_sleep_stage"
+            )
+    _report("sleepStage", out)
+    return out.samples
+
+
+def spo2_samples(payload: Any) -> list[Sample]:
+    """get_sleep_data -> {'wellnessEpochSPO2DataDTOList': [{'startGMT','spo2Reading'}, ...]}.
+
+    Intrapulmonary oxygen saturation readings spanning usually the whole day,
+    taken at epoch resolution; the widget panel shows the dip during sleep.
+    """
+    out = _Collector()
+    for item in as_list(payload, "wellnessEpochSPO2DataDTOList"):
+        if not isinstance(item, dict):
+            continue
+        ts = _instant(item, "startGMT", "startTimestampGMT", "startTimeGMT")
+        if ts is None:
+            out.note_missing("spo2:no_timestamp")
+            continue
+        out.add(sample("garmin_spo2", _first(item, "spo2Reading"), ts), "garmin_spo2")
+    _report("spo2", out)
+    return out.samples
+
+
 # --------------------------------------------------------------------------- #
 # Resting HR, stress, body battery, HRV, VO2 max
 # --------------------------------------------------------------------------- #
@@ -528,7 +588,7 @@ def activity_samples(activities: list[Any]) -> list[Sample]:
 # --------------------------------------------------------------------------- #
 _HANDLERS = {
     "summaries": summary_samples,
-    "sleep": sleep_samples,
+    "sleep": _sleep_combined,
     "rhr": rhr_samples,
     "stress": stress_samples,
     "body_battery": body_battery_samples,

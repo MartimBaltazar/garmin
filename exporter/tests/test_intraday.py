@@ -87,3 +87,47 @@ def test_intraday_steps_handles_iso_t_timestamps() -> None:
     out = intraday_steps_samples(payload)
     assert out[0].value == 120.0
     assert out[0].timestamp == datetime(2026, 10, 30, 8, 0, tzinfo=UTC)
+
+
+def test_sleep_stages_become_timestamped_segments() -> None:
+    """sleepLevels segments stitch the state-timeline; a terminal duplicate keeps
+    the last segment from being visually truncated."""
+    payload = {
+        "sleepLevels": [
+            {
+                "startTimeGMT": "2026-10-30 00:05:00",
+                "endGMT": "2026-10-30 01:00:00",
+                "activityLevel": 1,
+            },
+            {
+                "startTimeGMT": "2026-10-30 01:00:00",
+                "endGMT": "2026-10-30 01:30:00",
+                "activityLevel": 0,
+            },
+            {
+                "startTimeGMT": "2026-10-30 02:00:00",
+                "endGMT": "2026-10-30 02:10:00",
+                "activityLevel": None,
+            },
+        ]
+    }
+    from garmin_exporter.transform import sleep_stage_samples
+
+    out = [(i.value, i.timestamp, i.labels["stage"]) for i in sleep_stage_samples(payload)]
+    assert (1.0, datetime(2026, 10, 30, 0, 5, tzinfo=UTC), "light") in out
+    assert (1.0, datetime(2026, 10, 30, 1, 0, tzinfo=UTC), "light") in out  # terminal duplicate
+    assert (0.0, datetime(2026, 10, 30, 1, 0, tzinfo=UTC), "deep") in out
+    assert len(out) == 4  # two segments × start+end; level-less segment dropped
+
+
+def test_spo2_readings_from_the_sleep_payload() -> None:
+    from garmin_exporter.transform import spo2_samples
+
+    payload = {
+        "wellnessEpochSPO2DataDTOList": [
+            {"startGMT": "2026-10-30 03:30:00", "spo2Reading": 96},
+            {"startGMT": "2026-10-30 03:40:00", "spo2Reading": None},
+        ]
+    }
+    out = spo2_samples(payload)
+    assert len(out) == 1 and out[0].value == 96.0
