@@ -58,13 +58,13 @@ spec:
             # refreshed token file back.
             - name: init-permissions
               image: busybox:1.37.0
-              command: ["sh", "-c", "chown -R 10001:10001 /var/lib/garmin"]
+              command: ["sh", "-c", "chown -R 10001:10001 /var/lib/garmin/tokens"]
               securityContext:
                 runAsUser: 0
                 runAsNonRoot: false
               volumeMounts:
                 - name: tokens
-                  mountPath: /var/lib/garmin
+                  mountPath: /var/lib/garmin/tokens
           containers:
             - name: exporter
               # Built locally and loaded into minikube by `make image-load`.
@@ -91,7 +91,7 @@ spec:
                   value: INFO
               volumeMounts:
                 - name: tokens
-                  mountPath: /var/lib/garmin
+                  mountPath: /var/lib/garmin/tokens
               resources:
                 requests:
                   cpu: 50m

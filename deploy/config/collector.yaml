@@ -26,10 +26,23 @@ processors:
 
 exporters:
   prometheus_remote_write:
-    endpoint: http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write
-    resource_constant_labels:
-      included: []
-      excluded: ["*"]
+    http:
+      endpoint: http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write
+      insecure: true
+    # Without this, every series gains `otel_scope_name` and
+    # `otel_scope_version` labels. The backfill path writes the same metrics
+    # without them, so the two paths would produce two different series for
+    # every metric and every dashboard would show half the data.
+    disable_scope_info: true
+    # There is deliberately NO `job`/`instance` label on these series.
+    #
+    # The Prometheus translation in the Collector adds `job` from
+    # `service.name` and `instance` from `service.instance.id` whenever the
+    # OTLP resource carries them, and no collector setting suppresses it --
+    # `resource_constant_labels` and the deprecated
+    # `resource_to_telemetry_conversion` only govern the *other* resource
+    # attributes. So the exporter sends an empty resource instead. The metric
+    # names already carry the namespace.
     retry_on_failure:
       enabled: true
       initial_interval: 5s

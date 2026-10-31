@@ -18,11 +18,7 @@ from datetime import UTC, datetime
 import pytest
 
 from garmin_exporter.models import Sample, sample
-from garmin_exporter.otlp import (
-    DEFAULT_SERVICE_NAME,
-    build_request,
-    grpc_target,
-)
+from garmin_exporter.otlp import build_request, grpc_target
 
 DAY = datetime(2026, 10, 28, tzinfo=UTC)
 
@@ -148,14 +144,17 @@ def test_activity_labels_survive() -> None:
     assert _labels(point) == {"activity_id": "123", "activity_type": "running"}
 
 
-def test_resource_carries_the_service_name() -> None:
+def test_the_resource_carries_no_labels() -> None:
+    """The resource must stay empty.
+
+    The Collector turns `service.name` into a `job` label and
+    `service.instance.id` into an `instance` label, unconditionally. The
+    backfill path writes the same metrics without those labels, so a `job`
+    label here would split every metric into two series -- and every dashboard
+    would show half the data with nothing in the logs to explain it.
+    """
     request = build_request([sample("garmin_daily_steps", 1, DAY)])
-    assert _resource_attributes(request)["service.name"] == DEFAULT_SERVICE_NAME
-
-
-def test_service_name_can_be_overridden() -> None:
-    request = build_request([sample("garmin_daily_steps", 1, DAY)], service_name="other")
-    assert _resource_attributes(request)["service.name"] == "other"
+    assert _resource_attributes(request) == {}
 
 
 def test_an_empty_request_has_no_metrics() -> None:

@@ -104,14 +104,11 @@ class OtlpEmitter:
         endpoint: str,
         *,
         insecure: bool = True,
-        service_name: str = "garmin-exporter",
         timeout: float = 15.0,
     ) -> None:
         from .otlp import OtlpExporter
 
-        self._exporter = OtlpExporter(
-            endpoint, insecure=insecure, service_name=service_name, timeout=timeout
-        )
+        self._exporter = OtlpExporter(endpoint, insecure=insecure, timeout=timeout)
         self._endpoint = endpoint
 
     def emit(self, samples: Sequence[Sample]) -> None:

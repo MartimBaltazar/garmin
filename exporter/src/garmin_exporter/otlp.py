@@ -60,7 +60,6 @@ log = logging.getLogger(__name__)
 
 SCOPE_NAME = "garmin_exporter"
 SCOPE_VERSION = "0.1.0"
-DEFAULT_SERVICE_NAME = "garmin-exporter"
 DEFAULT_OTLP_PORT = 4317
 
 
@@ -82,14 +81,14 @@ def grpc_target(endpoint: str) -> str:
 
 def build_request(
     samples: Sequence[Sample],
-    *,
-    service_name: str = DEFAULT_SERVICE_NAME,
 ) -> ExportMetricsServiceRequest:
     """Build an OTLP export request, one gauge per metric name.
 
     All points for a metric share one Gauge, which is what the OTLP data model
     requires: a Gauge is a collection of time series distinguished by their
     attributes, and each series carries its own timestamp.
+
+    The resource is intentionally empty -- see the comment below.
     """
     grouped: dict[str, list[Sample]] = {}
     seen: set[tuple[str, tuple[tuple[str, str], ...], int]] = set()
@@ -117,11 +116,22 @@ def build_request(
             points.append(point)
         metrics.append(Metric(name=name, gauge=Gauge(data_points=points)))
 
-    # Resource.attributes is a repeated KeyValue, not a map -- unlike a
-    # datapoint's attributes, which is a map.
-    resource = Resource(
-        attributes=[KeyValue(key="service.name", value=AnyValue(string_value=service_name))]
-    )
+    # No resource attributes, deliberately -- in particular no `service.name`.
+    #
+    # The Collector turns `service.name` into a `job` label and
+    # `service.instance.id` into an `instance` label, unconditionally: the
+    # Prometheus translation in
+    # pkg/translator/prometheusremotewrite/helper.go adds them whenever the
+    # resource carries them, and no collector setting suppresses it.
+    #
+    # The backfill path writes straight to VictoriaMetrics and has no such
+    # labels, so a `job` label here would split every metric into two series
+    # -- one from the live path and one from the backfill -- and every
+    # dashboard would show half the data, with nothing in the logs to say why.
+    #
+    # The metric names already carry the namespace (`garmin_*`), so nothing is
+    # lost. `test_the_resource_carries_no_labels` guards this.
+    resource = Resource()
 
     scope = InstrumentationScope(name=SCOPE_NAME, version=SCOPE_VERSION)
     return ExportMetricsServiceRequest(
@@ -143,11 +153,9 @@ class OtlpExporter:
         *,
         insecure: bool = True,
         timeout: float = 15.0,
-        service_name: str = DEFAULT_SERVICE_NAME,
     ) -> None:
         self._target = grpc_target(endpoint)
         self._timeout = timeout
-        self._service_name = service_name
         if insecure:
             self._channel = grpc.insecure_channel(self._target)
         else:
@@ -161,7 +169,7 @@ class OtlpExporter:
     def export(self, samples: Sequence[Sample]) -> None:
         if not samples:
             return
-        request = build_request(samples, service_name=self._service_name)
+        request = build_request(samples)
         self._stub.Export(request, timeout=self._timeout)
         metrics = len(request.resource_metrics[0].scope_metrics[0].metrics)
         log.info(
