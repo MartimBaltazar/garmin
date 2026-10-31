@@ -131,3 +131,25 @@ def test_spo2_readings_from_the_sleep_payload() -> None:
     }
     out = spo2_samples(payload)
     assert len(out) == 1 and out[0].value == 96.0
+
+
+def test_sleep_data_samples_from_get_sleep_data_shape() -> None:
+    """get_sleep_data payload dict: dailySleepDTO + sleepLevels + SPO2 list."""
+    from garmin_exporter.transform import sleep_data_samples
+
+    payload = {
+        "dailySleepDTO": {"calendarDate": "2026-10-30", "totalSleepTimeInSeconds": 28800},
+        "sleepLevels": [
+            {
+                "startGMT": "2026-10-29T23:15:17.0",
+                "endGMT": "2026-10-29T23:18:17.0",
+                "activityLevel": 1,
+            }
+        ],
+        "wellnessEpochSPO2DataDTOList": [{"startGMT": "2026-10-30T03:30:00.0", "spo2Reading": 94}],
+    }
+    out = sleep_data_samples(payload)
+    names = [i.name for i in out]
+    assert names.count("garmin_sleep_stage") == 2  # start + terminal end
+    assert names.count("garmin_spo2") == 1
+    assert all(isinstance(i.value, float) for i in out)

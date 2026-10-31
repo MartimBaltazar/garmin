@@ -265,11 +265,6 @@ def sleep_samples(payload: Any) -> list[Sample]:
 _STAGES = {0: "deep", 1: "light", 2: "rem", 3: "awake"}
 
 
-def _sleep_combined(payload: Any) -> list[Sample]:
-    """The sleep endpoint feeds three families of series at different grains."""
-    return [*sleep_samples(payload), *sleep_stage_samples(payload), *spo2_samples(payload)]
-
-
 def sleep_stage_samples(payload: Any) -> list[Sample]:
     """get_sleep_data -> {'sleepLevels': [{'startGMT','endGMT','activityLevel'}, ...]}.
 
@@ -586,9 +581,18 @@ def activity_samples(activities: list[Any]) -> list[Sample]:
 # --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #
+def sleep_data_samples(payload: Any) -> list[Sample]:
+    """get_sleep_data -> sleep segments + SpO2 readings.
+
+    One day per call; only days with a recorded sleep record produce data.
+    Stages stitch into a state-timeline panel; SpO2 shows overnight dips.
+    """
+    return [*sleep_stage_samples(payload), *spo2_samples(payload)]
+
+
 _HANDLERS = {
     "summaries": summary_samples,
-    "sleep": _sleep_combined,
+    "sleep": sleep_samples,
     "rhr": rhr_samples,
     "stress": stress_samples,
     "body_battery": body_battery_samples,
@@ -598,6 +602,7 @@ _HANDLERS = {
     "intraday_stress": intraday_stress_samples,
     "intraday_respiration": intraday_respiration_samples,
     "intraday_steps": intraday_steps_samples,
+    "sleep_data": sleep_data_samples,
 }
 
 

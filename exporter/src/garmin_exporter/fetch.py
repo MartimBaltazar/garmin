@@ -78,6 +78,7 @@ INTRADAY_SOURCES: tuple[Source, ...] = (
     Source("intraday_stress", "get_stress_data", span_days=1),
     Source("intraday_respiration", "get_respiration_data", span_days=1),
     Source("intraday_steps", "get_steps_data", span_days=1),
+    Source("sleep_data", "get_sleep_data", span_days=1),
 )
 
 ACTIVITY_SOURCE = "get_activities_by_date"
