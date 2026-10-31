@@ -44,8 +44,8 @@
         "uid": "victoriametrics"
       },
       "gridPos": {
-        "h": 5,
-        "w": 6,
+        "h": 9,
+        "w": 3,
         "x": 0,
         "y": 0
       },
@@ -119,10 +119,10 @@
         "uid": "victoriametrics"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 6,
-        "x": 6,
-        "y": 0
+        "x": 0,
+        "y": 18
       },
       "targets": [
         {
@@ -173,10 +173,10 @@
         "uid": "victoriametrics"
       },
       "gridPos": {
-        "h": 5,
+        "h": 4,
         "w": 6,
-        "x": 12,
-        "y": 0
+        "x": 6,
+        "y": 18
       },
       "targets": [
         {
@@ -228,7 +228,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 22
       },
       "targets": [
         {
@@ -267,7 +267,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 22
       },
       "targets": [
         {
@@ -317,7 +317,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 13
+        "y": 30
       },
       "interval": "1d",
       "targets": [
@@ -373,7 +373,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 13
+        "y": 30
       },
       "interval": "1d",
       "targets": [
@@ -463,7 +463,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 21
+        "y": 38
       },
       "interval": "1d",
       "targets": [
@@ -513,7 +513,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 21
+        "y": 38
       },
       "interval": "1d",
       "targets": [
@@ -560,9 +560,9 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 12,
-        "x": 0,
-        "y": 29
+        "w": 21,
+        "x": 3,
+        "y": 0
       },
       "interval": "1d",
       "targets": [
@@ -647,10 +647,10 @@
         "uid": "victoriametrics"
       },
       "gridPos": {
-        "h": 9,
+        "h": 8,
         "w": 12,
         "x": 12,
-        "y": 29
+        "y": 46
       },
       "interval": "1d",
       "targets": [
@@ -683,6 +683,104 @@
         }
       },
       "description": "Only points on days with a qualifying activity; sparse by design."
+    },
+    {
+      "id": 12,
+      "title": "Resting heart rate today (latest day)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 3,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(garmin_daily_resting_heart_rate)",
+          "legendFormat": "rhr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "description": "Resting HR of the most recent day. Garmin updates this overnight, so mid-day it lags one day."
+    },
+    {
+      "id": 13,
+      "title": "Heart rate evolution (intraday, minute resolution)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 21,
+        "x": 3,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_heart_rate",
+          "legendFormat": "HR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Per-minute watch readings. Zoom to a single day to see the raw curve; at multi-week zoom it collapses to the min/max envelope per day."
     }
   ]
 }
