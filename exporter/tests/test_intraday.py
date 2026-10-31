@@ -78,3 +78,12 @@ def test_transform_all_honours_intraday_sources() -> None:
     )
     samples = transform_all(payloads)
     assert any(s.name == "garmin_heart_rate" and s.value == 55.0 for s in samples)
+
+
+def test_intraday_steps_handles_iso_t_timestamps() -> None:
+    """Live startGMT is 'YYYY-MM-DDTHH:MM:SS.0'; the space form appeared only
+    in the samples dump."""
+    payload = [{"startGMT": "2026-10-30T08:00:00.0", "steps": 120}]
+    out = intraday_steps_samples(payload)
+    assert out[0].value == 120.0
+    assert out[0].timestamp == datetime(2026, 10, 30, 8, 0, tzinfo=UTC)

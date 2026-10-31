@@ -70,8 +70,11 @@ def _instant(payload: Any, *paths: str) -> datetime | None:
     for path in paths:
         raw = _get_path(payload, path)
         if isinstance(raw, str) and len(raw) >= 19:
+            # Garmin uses both "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DDTHH:MM:SS".
             try:
-                return datetime.strptime(raw[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+                return datetime.strptime(raw[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S").replace(
+                    tzinfo=UTC
+                )
             except ValueError:
                 continue
         if isinstance(raw, (int, float)) and raw > 0:
