@@ -552,7 +552,7 @@
     },
     {
       "id": 10,
-      "title": "Steps per day (goal reference)",
+      "title": "Steps per day (running average)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
@@ -573,8 +573,8 @@
         },
         {
           "refId": "B",
-          "expr": "garmin_daily_steps_goal",
-          "legendFormat": "goal"
+          "expr": "running_avg(garmin_daily_steps)",
+          "legendFormat": "running avg"
         }
       ],
       "fieldConfig": {
@@ -593,7 +593,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "goal"
+              "options": "running avg"
             },
             "properties": [
               {
@@ -601,7 +601,7 @@
                 "type": "matcher",
                 "options": {
                   "id": "fixed",
-                  "value": "dark-red"
+                  "value": "orange"
                 }
               },
               {
@@ -613,8 +613,18 @@
                 "value": 0
               },
               {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
                 "id": "custom.lineWidth",
-                "value": 2
+                "value": 3
               }
             ]
           }
@@ -626,7 +636,7 @@
           "placement": "bottom"
         }
       },
-      "description": "Bars are daily steps at event time (UTC midnight). Today's bar grows until midnight; with continuous color mode it already shows green-to-red rather than Apple's split-fill, which Grafana cannot do per-bar."
+      "description": "Bars are daily steps at event time (UTC midnight). Today's bar grows until midnight. Dashed orange line is the to-date running average, matching the calories panel. Continuous green-to-red coloring, not Apple's split-goal fill, which Grafana cannot render per-bar."
     },
     {
       "id": 11,
