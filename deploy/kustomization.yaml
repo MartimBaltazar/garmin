@@ -31,3 +31,19 @@ configMapGenerator:
         app.kubernetes.io/name: grafana
     files:
       - dashboard.json=config/dashboard-garmin.json
+  # Alerting rules and Alertmanager config are generated as ConfigMaps with
+  # stable names so alerting components (vmalert, Alertmanager) can mount them.
+  - name: garmin-alert-rules
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: garmin-exporter
+    files:
+      - alert-rules.yml=config/alert-rules.yaml
+  - name: garmin-alertmanager
+    options:
+      disableNameSuffixHash: true
+      labels:
+        app.kubernetes.io/name: garmin-exporter
+    files:
+      - alertmanager.yml=config/alertmanager.yaml

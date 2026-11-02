@@ -1,0 +1,38 @@
+groups:
+  - name: garmin_exporter
+    rules:
+      - alert: GarminExporterStale
+        expr: time() - max(garmin_exporter_last_success_timestamp_seconds) > 21600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Garmin exporter has not succeeded in 6h"
+          description: "Last successful run was {{ $value }} seconds ago. Check the exporter CronJob logs and token validity."
+
+      - alert: GarminExporterAPIErrors
+        expr: increase(garmin_exporter_api_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Garmin API errors detected"
+          description: "{{ $value }} API errors in the last 5 minutes. May indicate rate limiting or credential issues."
+
+      - alert: GarminDailyStepsBelowGoal
+        expr: garmin_daily_steps < garmin_daily_steps_goal
+        for: 3d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Daily steps below goal for 3+ days"
+          description: "Steps: {{ $value }}, goal: {{ $labels.garmin_daily_steps_goal }}."
+
+      - alert: GarminRestingHeartRateHigh
+        expr: garmin_daily_resting_heart_rate > 70
+        for: 3d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Resting heart rate above 70 bpm for 3+ days"
+          description: "RHR: {{ $value }} bpm. Consider rest, hydration, or illness."

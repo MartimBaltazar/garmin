@@ -1,0 +1,41 @@
+route:
+  receiver: 'slack'
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: 'pagerduty'
+      match:
+        severity: critical
+    - receiver: 'whatsapp'
+      match_re:
+        severity: warning
+
+receivers:
+  - name: 'slack'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+        channel: '#garmin-alerts'
+        title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+        text: '{{ .CommonAnnotations.summary }}'
+        send_resolved: true
+
+  - name: 'pagerduty'
+    pagerduty_configs:
+      - service_key: 'YOUR_PAGERDUTY_SERVICE_KEY'
+        send_resolved: true
+
+  - name: 'whatsapp'
+    webhook_configs:
+      - url: 'http://whatsapp-gateway.garmin.svc.cluster.local:8080/send'
+        send_resolved: true
+        # WhatsApp is not a native Alertmanager receiver. This webhook expects
+        # a small service you run that calls the WhatsApp Business API (e.g.
+        # Twilio, MessageBird, or CallMeBot). See docs/runbook.md for examples.
+
+inhibit_rules:
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['alertname']
