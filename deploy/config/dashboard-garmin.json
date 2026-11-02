@@ -932,7 +932,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "non_negative_derivative(garmin_steps_cumulative[15m])",
+          "expr": "increase(garmin_steps_cumulative[15m])",
           "legendFormat": "{{hour}}"
         }
       ],
