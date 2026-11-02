@@ -239,29 +239,12 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "bpm",
           "custom": {
             "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "auto"
           },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 55
-              },
-              {
-                "color": "red",
-                "value": 70
-              }
-            ]
-          },
+          "unit": "bpm",
           "min": 30,
           "max": 80
         },
@@ -303,14 +286,14 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0,
-          "max": 100,
-          "unit": "none",
           "custom": {
-            "fillOpacity": 12,
+            "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "auto"
-          }
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "none"
         },
         "overrides": [
           {
@@ -723,7 +706,6 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0,
           "custom": {
             "fillOpacity": 10,
             "lineWidth": 2,
