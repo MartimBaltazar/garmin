@@ -1,6 +1,6 @@
 .PHONY: help venv install test lint fmt image config login dump dry-run backfill clean \
         cluster-up image-load secret token-seed up down status logs grafana \
-        cluster-backfill query
+        cluster-backfill sync query
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -118,6 +118,12 @@ cluster-backfill: ## Backfill history into the cluster. Usage: make cluster-back
 	sed -e 's/__FROM__/$(FROM)/' -e 's/__TO__/$(TO)/' deploy/50-backfill-job.yaml | $(KUBECTL) apply -f -
 	$(KUBECTL) -n $(NS) wait --for=condition=complete job/garmin-backfill --timeout=1800s
 	$(KUBECTL) -n $(NS) logs job/garmin-backfill --tail=20
+
+sync: ## Force a one-off exporter run (uses cached tokens, no MFA). Usage: make sync
+	@$(KUBECTL) -n $(NS) delete job garmin-exporter-sync --ignore-not-found --wait=false >/dev/null 2>&1 || true
+	$(KUBECTL) -n $(NS) create job --from=cronjob/garmin-exporter garmin-exporter-sync >/dev/null 2>&1
+	$(KUBECTL) -n $(NS) wait --for=condition=complete job/garmin-exporter-sync --timeout=600s
+	$(KUBECTL) -n $(NS) logs job/garmin-exporter-sync --tail=5
 
 query: ## Query VictoriaMetrics. Usage: make query Q='garmin_daily_steps'
 	$(KUBECTL) -n $(NS) exec deployment/victoriametrics -- \
