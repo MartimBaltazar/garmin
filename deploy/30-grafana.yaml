@@ -160,7 +160,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: grafana-data-new
+            claimName: grafana-data-fresh
         - name: tmp
           emptyDir: {}
         - name: provisioning

@@ -234,21 +234,63 @@
         {
           "refId": "A",
           "expr": "garmin_daily_resting_heart_rate",
-          "legendFormat": "rhr"
+          "legendFormat": "daily"
+        },
+        {
+          "refId": "B",
+          "expr": "running_avg(garmin_daily_resting_heart_rate)",
+          "legendFormat": "average"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "unit": "bpm",
           "custom": {
             "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "auto"
-          },
-          "unit": "bpm",
-          "min": 30,
-          "max": 80
+          }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -282,18 +324,23 @@
           "refId": "B",
           "expr": "garmin_daily_body_battery_max",
           "legendFormat": "daily max"
+        },
+        {
+          "refId": "C",
+          "expr": "running_avg(garmin_daily_body_battery_latest)",
+          "legendFormat": "average"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "none",
           "custom": {
             "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "auto"
-          },
-          "min": 0,
-          "max": 100,
-          "unit": "none"
+          }
         },
         "overrides": [
           {
@@ -317,6 +364,44 @@
               {
                 "id": "custom.lineWidth",
                 "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
               },
               {
                 "id": "custom.fillOpacity",
