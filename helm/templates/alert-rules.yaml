@@ -1,0 +1,47 @@
+{{- if .Values.alerting.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-garmin-alert-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: garmin-exporter
+    {{- include "garmin.labels" . | nindent 4 }}
+data:
+  alert-rules.yml: |
+    groups:
+      - name: garmin_exporter
+        rules:
+          - alert: GarminExporterStale
+            expr: time() - max(garmin_exporter_last_success_timestamp_seconds) > 21600
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Garmin exporter has not succeeded in 6h"
+              description: "Last successful run was more than 6 hours ago."
+          - alert: GarminExporterAPIErrors
+            expr: increase(garmin_exporter_api_errors_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Garmin API errors detected"
+              description: "API errors detected in the last 5 minutes."
+          - alert: GarminDailyStepsBelowGoal
+            expr: garmin_daily_steps < garmin_daily_steps_goal
+            for: 3d
+            labels:
+              severity: warning
+            annotations:
+              summary: "Daily steps below goal for 3+ days"
+              description: "Daily steps are below the goal."
+          - alert: GarminRestingHeartRateHigh
+            expr: garmin_daily_resting_heart_rate > 70
+            for: 3d
+            labels:
+              severity: warning
+            annotations:
+              summary: "Resting heart rate above 70 bpm for 3+ days"
+              description: "Resting heart rate is above 70 bpm."
+{{- end }}

@@ -47,3 +47,13 @@ exporter:
   resources:
     requests: { cpu: 50m, memory: 128Mi }
     limits: { memory: 256Mi }
+
+alerting:
+  enabled: false
+  # Slack webhook URL (required for Slack alerts)
+  slackWebhookURL: ''
+  # PagerDuty service key (required for PagerDuty alerts)
+  pagerDutyServiceKey: ''
+  # WhatsApp webhook URL (optional — Alertmanager has no native WhatsApp;
+  # run a small gateway that calls Twilio/MessageBird/etc.)
+  whatsappWebhookURL: ''
