@@ -914,6 +914,100 @@
         }
       },
       "description": "Per-minute watch readings. Zoom to a single day to see the raw curve; at multi-week zoom it collapses to the min/max envelope per day."
+    },
+    {
+      "id": 14,
+      "title": "Steps heatmap (steps per 15-min bucket)",
+      "type": "heatmap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "non_negative_derivative(garmin_steps_cumulative[15m])",
+          "legendFormat": "{{hour}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "scale",
+            "scale": {
+              "start": "green",
+              "center": "yellow",
+              "end": "red"
+            }
+          },
+          "custom": {
+            "drawStyle": "pixels"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculateHeatmap": true,
+        "showValues": "never",
+        "reverseY": false,
+        "distributionType": "bucket",
+        "bucketSize": "auto",
+        "bucketBoundaries": ""
+      },
+      "description": "Step activity heatmap. Darker = more steps in that 15-min bucket. Shows when during the day you're most active."
+    },
+    {
+      "id": 15,
+      "title": "Heart rate heatmap (bpm over time)",
+      "type": "heatmap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_heart_rate",
+          "legendFormat": "{{hour}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "scale",
+            "scale": {
+              "start": "blue",
+              "center": "yellow",
+              "end": "red"
+            }
+          },
+          "custom": {
+            "drawStyle": "pixels"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculateHeatmap": true,
+        "showValues": "never",
+        "reverseY": false,
+        "distributionType": "bucket",
+        "bucketSize": "auto",
+        "bucketBoundaries": ""
+      },
+      "description": "Heart rate heatmap. Darker red = higher HR. Shows HR patterns throughout the day and night."
     }
   ]
 }
