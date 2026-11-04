@@ -1,49 +1,100 @@
-{{- if .Values.alerting.enabled }}
+{{- if .Values.alertmanager.enabled }}
 apiVersion: v1
-kind: ConfigMap
+kind: PersistentVolumeClaim
 metadata:
-  name: {{ .Release.Name }}-garmin-alertmanager
+  name: {{ .Release.Name }}-alertmanager-data
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: garmin-exporter
+    app.kubernetes.io/name: alertmanager
     {{- include "garmin.labels" . | nindent 4 }}
-data:
-  alertmanager.yml: |
-    route:
-      receiver: 'slack'
-      group_wait: 30s
-      group_interval: 5m
-      repeat_interval: 4h
-      routes:
-        - receiver: 'pagerduty'
-          match:
-            severity: critical
-        - receiver: 'whatsapp'
-          match_re:
-            severity: warning
-    receivers:
-      - name: 'slack'
-        slack_configs:
-          - api_url: '{{ .Values.alerting.slackWebhookURL }}'
-            channel: '#garmin-alerts'
-            title: 'Garmin alert'
-            text: 'Garmin alert triggered'
-            send_resolved: true
-      - name: 'pagerduty'
-        pagerduty_configs:
-          - service_key: '{{ .Values.alerting.pagerDutyServiceKey }}'
-            send_resolved: true
-      - name: 'whatsapp'
-        webhook_configs:
-          - url: '{{ .Values.alerting.whatsappWebhookURL }}'
-            send_resolved: true
-            # WhatsApp is not a native Alertmanager receiver. This webhook
-            # expects a small gateway service that calls the WhatsApp Business
-            # API (e.g. Twilio, MessageBird, CallMeBot).
-    inhibit_rules:
-      - source_match:
-          severity: critical
-        target_match:
-          severity: warning
-        equal: ['alertname']
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.alertmanager.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: alertmanager
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.alertmanager.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      securityContext:
+        {{- include "garmin.podSecurityContext" . | nindent 8 }}
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: alertmanager
+          image: {{ .Values.alertmanager.image }}
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=0.0.0.0:9093
+          ports:
+            - name: http
+              containerPort: 9093
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources: {{- toYaml .Values.alertmanager.resources | nindent 12 }}
+          securityContext:
+            {{- include "garmin.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: data
+              mountPath: /alertmanager
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-garmin-alertmanager
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Release.Name }}-alertmanager-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-alertmanager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: alertmanager
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
 {{- end }}

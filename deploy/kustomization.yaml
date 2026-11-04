@@ -12,6 +12,8 @@ resources:
   - 20-otel-collector.yaml
   - 30-grafana.yaml
   - 40-exporter-cronjob.yaml
+  - 60-alertmanager.yaml
+  - 70-vmalert.yaml
 
 configMapGenerator:
   # The generated name carries a content hash, so a config change rolls the

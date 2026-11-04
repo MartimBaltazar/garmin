@@ -1,0 +1,89 @@
+{{- if .Values.vmalert.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-vmalert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vmalert
+    {{- include "garmin.labels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-vmalert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vmalert
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.vmalert.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmalert
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmalert
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-vmalert
+      securityContext:
+        {{- include "garmin.podSecurityContext" . | nindent 8 }}
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: vmalert
+          image: {{ .Values.vmalert.image }}
+          args:
+            - --datasource.url=http://{{ .Release.Name }}-victoriametrics.{{ .Release.Namespace }}.svc.cluster.local:8428
+            - --notifier.url=http://{{ .Release.Name }}-alertmanager.{{ .Release.Namespace }}.svc.cluster.local:9093
+            - --rule=/etc/vmalert/rules/alert-rules.yml
+            - --external.url=http://{{ .Release.Name }}-vmalert.{{ .Release.Namespace }}.svc.cluster.local:8880
+          ports:
+            - name: http
+              containerPort: 8880
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources: {{- toYaml .Values.vmalert.resources | nindent 12 }}
+          securityContext:
+            {{- include "garmin.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/vmalert/rules
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: rules
+          configMap:
+            name: {{ .Release.Name }}-garmin-alert-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-vmalert
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vmalert
+    {{- include "garmin.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 8880
+      targetPort: http
+{{- end }}

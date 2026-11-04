@@ -57,3 +57,20 @@ alerting:
   # WhatsApp webhook URL (optional — Alertmanager has no native WhatsApp;
   # run a small gateway that calls Twilio/MessageBird/etc.)
   whatsappWebhookURL: ''
+
+alertmanager:
+  enabled: true
+  image: prom/alertmanager:v0.27.0
+  storage: 2Gi
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+vmalert:
+  enabled: true
+  image: victoriametrics/vmalert:v1.155.0
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }

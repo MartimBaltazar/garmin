@@ -1,0 +1,107 @@
+# Alertmanager: receives alerts from vmalert, routes to Slack / PagerDuty / WhatsApp.
+#
+# Config is injected via the garmin-alertmanager ConfigMap (see kustomization.yaml).
+# WhatsApp is delivered through a webhook receiver -- Alertmanager has no native
+# WhatsApp integration. See docs/runbook.md for how to point it at CallMeBot,
+# Twilio, or your own gateway.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-data
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: alertmanager
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: garmin-observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --web.listen-address=0.0.0.0:9093
+          ports:
+            - name: http
+              containerPort: 9093
+          readinessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: data
+              mountPath: /alertmanager
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: garmin-alertmanager
+        - name: data
+          persistentVolumeClaim:
+            claimName: alertmanager-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: alertmanager
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
