@@ -4,6 +4,38 @@ Local minikube stack: VictoriaMetrics + OTel Collector + Grafana + Garmin export
 Exporter pulls Garmin Connect data every 30 minutes, writes to VictoriaMetrics,
 Grafana dashboards read from it.
 
+## Architecture
+
+```text
+┌─────────────────┐   HTTPS   ┌─────────────────────────────┐
+│ Garmin Connect  │──────────▶│ exporter (CronJob */30)     │
+│   (cloud)       │   fetch   │   fetch → transform → emit  │
+└─────────────────┘           └──────────┬──────────────────┘
+                                         │ OTLP (:4317)
+                                         ▼
+                           ┌─────────────────────────────┐
+                           │   otel-collector (:4317)    │
+                           │   pass-through, no labels   │
+                           └──────────┬──────────────────┘
+                                      │ remote-write (:8428)
+                                      ▼
+                           ┌─────────────────────────────┐
+                           │  VictoriaMetrics (:8428)    │
+                           │   retention = 10y (PVC)     │
+                           │   bare series, no labels    │
+                           └──────────┬──────────────────┘
+                                      │ PromQL
+                                      ▼
+                           ┌─────────────────────────────┐
+                           │     Grafana (:3000)         │
+                           │   dashboards: Garmin Health │
+                           └─────────────────────────────┘
+
+Backfill path: Job → Garmin API → exporter → VM import (direct, bypasses collector)
+Tokens: your laptop → make token-seed → PVC garmin-tokens → exporter reads on every run
+No credentials in cluster; .env and .tokens/ are git-ignored.
+```
+
 ## Prerequisites
 
 - Docker Desktop running
