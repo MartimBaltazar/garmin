@@ -39,7 +39,7 @@ spec:
         spec:
           restartPolicy: Never
           securityContext:
-            {{- include "garmin.podSecurityContext" . | nindent 10 }}
+            {{- include "garmin.podSecurityContext" . | nindent 12 }}
             runAsUser: 10001
             runAsGroup: 10001
           initContainers:
