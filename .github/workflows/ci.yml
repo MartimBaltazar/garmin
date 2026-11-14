@@ -121,6 +121,13 @@ jobs:
           GARMIN_E2E_OTLP: localhost:4317
           GARMIN_E2E_VM: http://localhost:8428
         run: uv run --frozen --extra dev pytest -q -m e2e -v
+      - name: What VictoriaMetrics stored
+        if: always()
+        run: |
+          echo "--- metric names"
+          curl -s 'http://localhost:8428/api/v1/label/__name__/values' | python3 -m json.tool
+          echo "--- jobs"
+          curl -s 'http://localhost:8428/api/v1/label/job/values' | python3 -m json.tool
       - name: Collector logs
         if: always()
         run: docker logs otelcol 2>&1 | tail -100
