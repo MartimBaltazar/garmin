@@ -1,9 +1,11 @@
-# One-shot backfill. `make backfill FROM=2026-10-12 TO=2026-10-29` renders the
-# __FROM__/__TO__ placeholders and applies this.
+# One-shot backfill. `make cluster-backfill FROM=2026-10-12 TO=2026-10-29`
+# renders the __FROM__/__TO__ placeholders and applies this.
 #
-# It writes straight to VictoriaMetrics, not through the Collector: a backfill
-# is a bounded job with explicit timestamps, and the Collector has nothing to
-# add to it.
+# History goes through the Collector, like the live path: the exporter sets
+# each OTLP datapoint's timestamp itself, so OTLP carries the past fine, and
+# one ingest point means one place to watch (see docs/otel-collector.md).
+# Set GARMIN_EMIT=vm to write straight to VictoriaMetrics' import API instead,
+# e.g. if the Collector is down.
 #
 # Idempotent by construction. A sample's timestamp is part of its series
 # identity, so re-running overwrites the same points instead of duplicating
@@ -54,7 +56,12 @@ spec:
             - "__TO__"
           env:
             - name: GARMIN_EMIT
-              value: vm
+              value: otlp
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.garmin.svc.cluster.local:4317
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              value: "true"
+            # Only used when GARMIN_EMIT=vm.
             - name: GARMIN_VM_URL
               value: http://victoriametrics.garmin.svc.cluster.local:8428
             - name: GARMIN_TOKENSTORE

@@ -30,12 +30,12 @@ from typing import Any
 
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
-from .auth import get_client
+from .auth import AuthError, get_client
 from .config import Config
 
 log = logging.getLogger(__name__)
@@ -83,6 +83,64 @@ INTRADAY_SOURCES: tuple[Source, ...] = (
 
 ACTIVITY_SOURCE = "get_activities_by_date"
 
+#: Exception class names from ``garminconnect`` (matched by name, so a library
+#: rename degrades to "retry" rather than an ImportError at startup).
+_AUTH_ERROR_NAMES = frozenset({"GarminConnectAuthenticationError"})
+_RATE_LIMIT_ERROR_NAMES = frozenset({"GarminConnectTooManyRequestsError"})
+
+
+def _exception_chain(exc: BaseException) -> Iterator[BaseException]:
+    """The exception and everything it was raised from, outermost first."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def http_status(exc: BaseException) -> int | None:
+    """Best-effort HTTP status of a failed call, from anywhere in the chain.
+
+    ``garminconnect`` wraps the transport error (curl_cffi or httpx) in its own
+    exception types, and neither layer exposes the status uniformly, so look
+    for the attributes both use.
+    """
+    for item in _exception_chain(exc):
+        for holder in (item, getattr(item, "response", None)):
+            code = getattr(holder, "status_code", None)
+            if isinstance(code, int):
+                return code
+    return None
+
+
+def is_auth_failure(exc: BaseException) -> bool:
+    if any(type(item).__name__ in _AUTH_ERROR_NAMES for item in _exception_chain(exc)):
+        return True
+    if any(isinstance(item, AuthError) for item in _exception_chain(exc)):
+        return True
+    return http_status(exc) in (401, 403)
+
+
+def is_retryable(exc: BaseException) -> bool:
+    """Retry what can succeed on a second attempt, and nothing else.
+
+    Retrying a 400 (window too wide), a 401 (token revoked) or a missing method
+    cannot help: it only adds backoff time -- enough, across a dozen sources, to
+    run past the Job's ``activeDeadlineSeconds`` -- and sends an unofficial API
+    extra requests it already rejected.
+    """
+    if is_auth_failure(exc):
+        return False
+    if any(type(item).__name__ in _RATE_LIMIT_ERROR_NAMES for item in _exception_chain(exc)):
+        return True
+    status = http_status(exc)
+    if status is not None:
+        return status == 429 or status >= 500
+    # Programming errors never heal; an unknown transport-level failure (DNS,
+    # reset, timeout) is worth another try.
+    return not isinstance(exc, (ValueError, TypeError, AttributeError, KeyError))
+
 
 @dataclass
 class RawPayloads:
@@ -97,6 +155,13 @@ class RawPayloads:
     sources: dict[str, Any] = field(default_factory=dict)
     activities: list[Any] = field(default_factory=list)
     errors: Counter[str] = field(default_factory=Counter)
+    #: Sources that were asked for and failed, so a run can tell "Garmin had no
+    #: data" (fine) from "every call failed" (not fine).
+    failed_sources: set[str] = field(default_factory=set)
+    attempted_sources: int = 0
+
+    def all_sources_failed(self) -> bool:
+        return self.attempted_sources > 0 and len(self.failed_sources) >= self.attempted_sources
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -114,7 +179,7 @@ class Fetcher:
         self._client = client
         self._last_call = 0.0
         self._retry = retry(
-            retry=retry_if_exception_type(Exception),
+            retry=retry_if_exception(is_retryable),
             stop=stop_after_attempt(3),
             wait=wait_exponential(multiplier=1, min=2, max=30),
             reraise=True,
@@ -148,10 +213,14 @@ class Fetcher:
         payloads = RawPayloads(start=start, end=end)
 
         for source in (*SOURCES, *INTRADAY_SOURCES):
+            # Resolving the client may raise AuthError; that is fatal for the
+            # whole run and must reach the runner, so it stays outside the
+            # per-source try below.
             if not hasattr(self.client, source.method):
                 log.warning("method missing on client, skipping", extra={"method": source.method})
                 payloads.errors[f"{source.key}:missing_method"] += 1
                 continue
+            payloads.attempted_sources += 1
             try:
                 chunks = [
                     self.call(
@@ -162,15 +231,24 @@ class Fetcher:
                 ]
                 payloads.sources[source.key] = merge_chunks(chunks)
             except Exception as exc:  # noqa: BLE001 - one source must not sink the run
+                if is_auth_failure(exc):
+                    # Tokens loaded but Garmin rejects them. Every remaining
+                    # source would fail the same way, so stop calling.
+                    raise AuthError(
+                        f"Garmin rejected the session on {source.method}: {exc}"
+                    ) from exc
                 log.warning(
                     "source failed",
                     extra={"source": source.key, "method": source.method, "error": str(exc)},
                 )
                 payloads.errors[f"{source.key}:error"] += 1
+                payloads.failed_sources.add(source.key)
 
         try:
             payloads.activities = as_list(self.call(ACTIVITY_SOURCE, start, end))
         except Exception as exc:  # noqa: BLE001
+            if is_auth_failure(exc):
+                raise AuthError(f"Garmin rejected the session on {ACTIVITY_SOURCE}: {exc}") from exc
             log.warning("activities failed", extra={"error": str(exc)})
             payloads.errors["activities:error"] += 1
 

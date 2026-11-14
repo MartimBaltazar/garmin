@@ -41,6 +41,7 @@ packages = ["src/garmin_exporter"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["e2e: needs a running Collector and VictoriaMetrics (see tests/test_e2e_pipeline.py)"]
 
 [tool.ruff]
 line-length = 100

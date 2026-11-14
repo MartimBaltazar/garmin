@@ -44,6 +44,11 @@ spec:
         - name: otel-collector
           image: {{ .Values.otelcollector.image }}
           args: ["--config=/conf/collector.yaml"]
+          env:
+            - name: VM_REMOTE_WRITE_ENDPOINT
+              value: {{ include "garmin.vmUrl" . }}/api/v1/write
+            - name: GOMEMLIMIT
+              value: 400MiB
           ports:
             - name: otlp-grpc
               containerPort: 4317

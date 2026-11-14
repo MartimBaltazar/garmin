@@ -1,0 +1,112 @@
+# WhatsApp gateway: Alertmanager webhook -> CallMeBot.
+#
+# The script is stdlib-only and ships as a ConfigMap (kustomization.yaml
+# generates `whatsapp-gateway-script` from deploy/helper/whatsapp-gateway.py),
+# so there is no image to build. Two Secrets, both created by the Makefile and
+# never committed:
+#
+#   alert-webhook-token   shared with Alertmanager; `make secret` generates it
+#   whatsapp-credentials  your CallMeBot phone + API key; `make whatsapp-secret`
+#
+# Without whatsapp-credentials the gateway runs, accepts alerts and only logs
+# them -- useful to check routing before wiring up the phone.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whatsapp-gateway
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: whatsapp-gateway
+    app.kubernetes.io/part-of: garmin-observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whatsapp-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: whatsapp-gateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: python:3.12-slim
+          command: ["python", "-I", "/app/whatsapp-gateway.py"]
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alert-webhook-token
+                  key: webhook-token
+                  # Missing token = gateway rejects everything (and says so in
+                  # its log), rather than a pod stuck in CreateContainerConfigError.
+                  optional: true
+            - name: WHATSAPP_PHONE
+              valueFrom:
+                secretKeyRef:
+                  name: whatsapp-credentials
+                  key: phone
+                  optional: true
+            - name: WHATSAPP_APIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: whatsapp-credentials
+                  key: apikey
+                  optional: true
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: whatsapp-gateway-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whatsapp-gateway
+  namespace: garmin
+  labels:
+    app.kubernetes.io/name: whatsapp-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: whatsapp-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -1,0 +1,1013 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "garmin",
+    "health"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-14d",
+    "to": "now"
+  },
+  "timezone": "utc",
+  "title": "Garmin Health",
+  "uid": "garmin-health",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Steps today (UTC day)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 3,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "randomWalk",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "max(garmin_daily_steps)",
+          "legendFormat": "steps"
+        },
+        {
+          "refId": "B",
+          "queryType": "randomWalk",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "expr": "max(garmin_daily_steps_goal)",
+          "legendFormat": "goal"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5000
+              },
+              {
+                "color": "green",
+                "value": 10000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "description": "Latest known day. Today's bar rises during the day, so a low number before midnight is normal."
+    },
+    {
+      "id": 2,
+      "title": "Exporter staleness (seconds since last successful run)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(max_over_time(garmin_exporter_last_success_timestamp_seconds[1h]))",
+          "legendFormat": "age"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 4500
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Exporter API errors (last 7d)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 18
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(sum_over_time(garmin_exporter_api_errors[7d]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Resting heart rate (bpm)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_resting_heart_rate",
+          "legendFormat": "daily"
+        },
+        {
+          "refId": "B",
+          "expr": "running_avg(garmin_daily_resting_heart_rate)",
+          "legendFormat": "average"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Resting heart rate for each day. Lower is generally better; Garmin updates overnight so today is partial."
+    },
+    {
+      "id": 5,
+      "title": "Body battery",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_body_battery_latest",
+          "legendFormat": "latest"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_body_battery_max",
+          "legendFormat": "daily max"
+        },
+        {
+          "refId": "C",
+          "expr": "running_avg(garmin_daily_body_battery_latest)",
+          "legendFormat": "average"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "none",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "daily max"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "dark-gray"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "red"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    6,
+                    4
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Body battery: latest reading (solid) vs daily max (dashed reference). 0-100 scale."
+    },
+    {
+      "id": 6,
+      "title": "Sleep by stage (hours)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_deep_sleep_seconds / 3600",
+          "legendFormat": "deep"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_light_sleep_seconds / 3600",
+          "legendFormat": "light"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_rem_sleep_seconds / 3600",
+          "legendFormat": "rem"
+        },
+        {
+          "refId": "D",
+          "expr": "garmin_daily_awake_sleep_seconds / 3600",
+          "legendFormat": "awake"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Active calories & intensity minutes",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_calories_active",
+          "legendFormat": "active kcal"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_intensity_minutes",
+          "legendFormat": "all intensity min"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_intensity_goal_minutes",
+          "legendFormat": "goal min"
+        },
+        {
+          "refId": "D",
+          "expr": "running_avg(garmin_daily_calories_active)",
+          "legendFormat": "running avg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 15,
+            "lineWidth": 2,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "running avg"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "orange"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Dashed orange line is the to-date running average. Today is partial until midnight UTC."
+    },
+    {
+      "id": 8,
+      "title": "HRV (ms)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_hrv_last_night_ms",
+          "legendFormat": "last night"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_hrv_baseline_ms",
+          "legendFormat": "baseline"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_hrv_weekly_avg_ms",
+          "legendFormat": "weekly avg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Stress & respiration",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_stress_avg",
+          "legendFormat": "stress avg"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_stress_max",
+          "legendFormat": "stress max"
+        },
+        {
+          "refId": "C",
+          "expr": "garmin_daily_respiration_avg",
+          "legendFormat": "respiration brpm"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Steps per day (running average)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 21,
+        "x": 3,
+        "y": 0
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_steps",
+          "legendFormat": "steps"
+        },
+        {
+          "refId": "B",
+          "expr": "running_avg(garmin_daily_steps)",
+          "legendFormat": "running avg"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 90,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "running avg"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "type": "matcher",
+                "options": {
+                  "id": "fixed",
+                  "value": "orange"
+                }
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    10,
+                    10
+                  ],
+                  "fill": "dash"
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Bars are daily steps at event time (UTC midnight). Today's bar grows until midnight. Dashed orange line is the to-date running average, matching the calories panel. Continuous green-to-red coloring, not Apple's split-goal fill, which Grafana cannot render per-bar."
+    },
+    {
+      "id": 11,
+      "title": "VO₂ max evolution",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "interval": "1d",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_daily_vo2max{sport=\"generic\"}",
+          "legendFormat": "generic"
+        },
+        {
+          "refId": "B",
+          "expr": "garmin_daily_vo2max{sport=\"cycling\"}",
+          "legendFormat": "cycling"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "always"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Only points on days with a qualifying activity; sparse by design."
+    },
+    {
+      "id": 12,
+      "title": "Resting heart rate today (latest day)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 3,
+        "x": 0,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(garmin_daily_resting_heart_rate)",
+          "legendFormat": "rhr"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 55
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "sparkline": {
+          "show": true,
+          "fillOpacity": 20,
+          "lineWidth": 2,
+          "showPoints": "auto"
+        }
+      },
+      "description": "Resting HR of the most recent day. Garmin updates this overnight, so mid-day it lags one day."
+    },
+    {
+      "id": 13,
+      "title": "Heart rate evolution (intraday, minute resolution)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 21,
+        "x": 3,
+        "y": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_heart_rate",
+          "legendFormat": "HR"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bpm",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "description": "Per-minute watch readings. Zoom to a single day to see the raw curve; at multi-week zoom it collapses to the min/max envelope per day."
+    },
+    {
+      "id": 14,
+      "title": "Steps heatmap (steps per 15-min bucket)",
+      "type": "heatmap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(garmin_steps_cumulative[15m])",
+          "legendFormat": "{{hour}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "scale",
+            "scale": {
+              "start": "green",
+              "center": "yellow",
+              "end": "red"
+            }
+          },
+          "custom": {
+            "drawStyle": "pixels"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculateHeatmap": true,
+        "showValues": "never",
+        "reverseY": false,
+        "distributionType": "bucket",
+        "bucketSize": "auto",
+        "bucketBoundaries": ""
+      },
+      "description": "Step activity heatmap. Darker = more steps in that 15-min bucket. Shows when during the day you're most active."
+    },
+    {
+      "id": 15,
+      "title": "Heart rate heatmap (bpm over time)",
+      "type": "heatmap",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "garmin_heart_rate",
+          "legendFormat": "{{hour}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "scale",
+            "scale": {
+              "start": "blue",
+              "center": "yellow",
+              "end": "red"
+            }
+          },
+          "custom": {
+            "drawStyle": "pixels"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculateHeatmap": true,
+        "showValues": "never",
+        "reverseY": false,
+        "distributionType": "bucket",
+        "bucketSize": "auto",
+        "bucketBoundaries": ""
+      },
+      "description": "Heart rate heatmap. Darker red = higher HR. Shows HR patterns throughout the day and night."
+    }
+  ]
+}

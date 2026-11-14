@@ -135,10 +135,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="trailing window to refetch (default 2, absorbs late device syncs)",
     )
 
-    back = sub.add_parser("backfill", parents=[common], help="replay history into VictoriaMetrics")
+    back = sub.add_parser(
+        "backfill",
+        parents=[common],
+        help="replay history with event timestamps (through the Collector by default)",
+    )
     back.add_argument("--from", dest="start", required=True, help="YYYY-MM-DD (inclusive)")
     back.add_argument("--to", dest="end", default=None, help="YYYY-MM-DD (default: today UTC)")
-    back.add_argument("--chunk-days", type=int, default=30)
+    back.add_argument(
+        "--chunk-days",
+        type=int,
+        default=runner.DEFAULT_BACKFILL_CHUNK_DAYS,
+        help="days fetched and written per step (default 28, Garmin's widest window)",
+    )
     return parser
 
 

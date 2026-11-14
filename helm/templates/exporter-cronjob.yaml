@@ -71,8 +71,6 @@ spec:
                   value: {{ .Values.exporter.lookbackDays | quote }}
                 - name: GARMIN_REQUEST_PAUSE_SECONDS
                   value: {{ .Values.exporter.requestPauseSeconds | quote }}
-                - name: GARMIN_VM_URL
-                  value: {{ include "garmin.vmUrl" . }}
                 - name: LOG_LEVEL
                   value: {{ .Values.exporter.logLevel }}
               volumeMounts:

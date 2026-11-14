@@ -1,15 +1,30 @@
-# CI: exporter tests, lint, and deploy-artifact validation.
+# CI: exporter tests, config validation with the real binaries, an end-to-end
+# run of the real Collector config, and the container image.
 #
-# The test suite already contains the load-bearing assertions (label
-# convergence, collector-config pass-through); this workflow makes them run on
-# every push instead of locally. Deployment to minikube stays a manual
-# `make up` on the dev machine -- CI has no credentials for Garmin and must
-# never acquire any.
+# CI has no Garmin credentials and must never acquire any. Everything here runs
+# on the checked-in fixture and configs. Deployment stays a manual `make up`.
+#
+# Actions are pinned to commit SHAs (tag in the trailing comment); Dependabot
+# (.github/dependabot.yml) proposes updates. Tool images are pinned by tag in
+# the env block below so every job validates against the versions the
+# manifests deploy.
 name: ci
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+
+permissions:
+  contents: read
+
+env:
+  OTELCOL_IMAGE: otel/opentelemetry-collector-contrib:0.164.0
+  VM_IMAGE: victoriametrics/victoria-metrics:v1.155.0
+  VMALERT_IMAGE: victoriametrics/vmalert:v1.155.0
+  ALERTMANAGER_IMAGE: prom/alertmanager:v0.27.0
+  KUBECONFORM_IMAGE: ghcr.io/yannh/kubeconform:v0.8.0
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1
 
 jobs:
   exporter:
@@ -18,27 +33,144 @@ jobs:
       run:
         working-directory: exporter
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      # ruff and mypy ship in the dev extra; run them here so style and type
-      # drift fail the build rather than the next local session.
-      - run: uv run --extra dev ruff check . && uv run --extra dev ruff format --check .
-      - run: uv run --extra dev mypy src
-      - run: uv run --extra dev pytest -q
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: lockfile matches pyproject
+        run: uv lock --check
+      - run: uv run --frozen --extra dev ruff check . && uv run --frozen --extra dev ruff format --check .
+      - run: uv run --frozen --extra dev mypy src
+      - run: uv run --frozen --extra dev pytest -q -m "not e2e" --cov=garmin_exporter --cov-report=term-missing
 
-  deploy:
+  # Every config file validated by the program that will read it, at the
+  # version the manifests deploy. A YAML parser accepting a file says nothing
+  # about whether the Collector, vmalert or Alertmanager will.
+  configs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      # Client-side validation only: build the kustomize bundle and render the
-      # chart, and parse the dashboard JSON. No cluster is involved.
-      - run: |
-          kubectl kustomize deploy > /tmp/bundle.yaml
-          grep -c "kind: CronJob" /tmp/bundle.yaml
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Collector config (otelcol validate)
+        run: |
+          docker run --rm -v "$PWD/deploy/config:/conf:ro" \
+            -e VM_REMOTE_WRITE_ENDPOINT=http://victoriametrics:8428/api/v1/write \
+            "$OTELCOL_IMAGE" validate --config=/conf/collector.yaml
+      - name: Alert rules (vmalert -dryRun parses MetricsQL and templates)
+        run: |
+          docker run --rm -v "$PWD/deploy/config:/rules:ro" \
+            "$VMALERT_IMAGE" -rule=/rules/alert-rules.yaml -dryRun
+      - name: Alertmanager config (amtool check-config)
+        run: |
+          docker run --rm -v "$PWD/deploy/config:/cfg:ro" --entrypoint amtool \
+            "$ALERTMANAGER_IMAGE" check-config /cfg/alertmanager.yaml
+      - name: Dashboards are valid JSON and generated dashboards are current
+        run: |
+          for f in deploy/config/dashboard-*.json; do python3 -m json.tool "$f" > /dev/null; done
+          python3 hack/gen_pipeline_dashboard.py
+          git diff --exit-code deploy/config/dashboard-pipeline.json
+      - name: Helm chart carries identical config copies
+        run: make chart-check
+
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+      - name: Render kustomize and Helm
+        run: |
+          mkdir -p rendered
+          kubectl kustomize deploy > rendered/kustomize.yaml
+          helm lint helm
+          helm template garmin helm --namespace garmin > rendered/helm.yaml
+      - name: kubeconform (schema-validate every rendered object)
+        run: |
+          docker run --rm -v "$PWD/rendered:/r:ro" "$KUBECONFORM_IMAGE" \
+            -strict -summary -kubernetes-version 1.31.0 /r/kustomize.yaml /r/helm.yaml
+      - name: Both packagings render the same kinds of objects
+        run: |
+          # The chart leaves the Namespace to `helm install --create-namespace`.
+          kinds() { grep -E '^kind: ' "$1" | grep -v 'kind: Namespace' | sort | uniq -c; }
+          diff <(kinds rendered/kustomize.yaml) <(kinds rendered/helm.yaml)
+
+  # The real Collector, with the checked-in config, in front of a real
+  # VictoriaMetrics. The service aliases are the in-cluster DNS names, so the
+  # config file is used unmodified.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [exporter, configs]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Start VictoriaMetrics and the Collector
+        run: |
+          docker network create e2e
+          docker run -d --name vm --network e2e \
+            --network-alias victoriametrics.garmin.svc.cluster.local \
+            -p 8428:8428 "$VM_IMAGE" \
+            -retentionPeriod=10y -search.latencyOffset=0s -inmemoryDataFlushInterval=1s
+          docker run -d --name otelcol --network e2e -p 4317:4317 -p 13133:13133 \
+            -v "$PWD/deploy/config:/conf:ro" \
+            -e VM_REMOTE_WRITE_ENDPOINT=http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write \
+            "$OTELCOL_IMAGE" --config=/conf/collector.yaml
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:13133/ >/dev/null && curl -sf http://localhost:8428/health >/dev/null && exit 0
+            sleep 2
+          done
+          docker logs otelcol; docker logs vm; exit 1
+      - name: Run the pipeline tests
+        working-directory: exporter
+        env:
+          GARMIN_E2E_OTLP: localhost:4317
+          GARMIN_E2E_VM: http://localhost:8428
+        run: uv run --frozen --extra dev pytest -q -m e2e -v
+      - name: Collector logs
+        if: always()
+        run: docker logs otelcol 2>&1 | tail -100
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          version: v4.1.3
-      - run: helm lint helm
-      - run: helm template garmin helm > /tmp/chart.yaml
-      - name: dashboard JSON is valid
-        run: python3 -m json.tool deploy/config/dashboard-garmin.json > /dev/null
+          fetch-depth: 0 # scan the whole history, not just the tip
+      - name: gitleaks
+        # safe.directory: the checkout is owned by the runner user, not the
+        # container's, and git refuses to read it otherwise.
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" git /repo --config /repo/.gitleaks.toml --redact --verbose
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [exporter]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/garmin-exporter
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+      - if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Built for both architectures on every PR (the Oracle target is ARM);
+      # pushed only for a version tag.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: exporter
+          platforms: linux/amd64,linux/arm64
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

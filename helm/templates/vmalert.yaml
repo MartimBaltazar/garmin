@@ -41,6 +41,10 @@ spec:
             - --notifier.url=http://{{ .Release.Name }}-alertmanager.{{ .Release.Namespace }}.svc.cluster.local:9093
             - --rule=/etc/vmalert/rules/alert-rules.yml
             - --external.url=http://{{ .Release.Name }}-vmalert.{{ .Release.Namespace }}.svc.cluster.local:8880
+            # Persist alert state (ALERTS_FOR_STATE) to VictoriaMetrics and restore it
+            # on start, so a restart does not reset every `for:` timer.
+            - --remoteWrite.url=http://{{ .Release.Name }}-victoriametrics.{{ .Release.Namespace }}.svc.cluster.local:8428
+            - --remoteRead.url=http://{{ .Release.Name }}-victoriametrics.{{ .Release.Namespace }}.svc.cluster.local:8428
           ports:
             - name: http
               containerPort: 8880

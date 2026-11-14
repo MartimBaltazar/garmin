@@ -1,9 +1,8 @@
-# Alertmanager: receives alerts from vmalert, routes to Slack / PagerDuty / WhatsApp.
+# Alertmanager: receives alerts from vmalert and sends them to WhatsApp via the
+# gateway in 80-whatsapp-gateway.yaml.
 #
 # Config is injected via the garmin-alertmanager ConfigMap (see kustomization.yaml).
-# WhatsApp is delivered through a webhook receiver -- Alertmanager has no native
-# WhatsApp integration. See docs/runbook.md for how to point it at CallMeBot,
-# Twilio, or your own gateway.
+# Alertmanager has no native WhatsApp integration; see docs/runbook.md.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -80,9 +79,20 @@ spec:
               mountPath: /alertmanager
             - name: tmp
               mountPath: /tmp
+            # Bearer token for the WhatsApp gateway (credentials_file in
+            # alertmanager.yaml). Created by `make secret`.
+            - name: webhook-token
+              mountPath: /etc/alertmanager-secrets
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: webhook-token
+          secret:
+            secretName: alert-webhook-token
+            # Alertmanager still starts without it; notifications then fail
+            # with a clear "no such file" error instead of the pod crashlooping.
+            optional: true
         - name: config
           configMap:
             name: garmin-alertmanager

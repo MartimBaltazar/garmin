@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -11,9 +12,9 @@ from datetime import UTC, datetime
 class Sample:
     """A single metric observation.
 
-    ``timestamp`` is the **event time**, never the collection time. The backfill
-    path writes it verbatim; the OTLP path cannot (the SDK stamps at observation)
-    and is documented as such in ``dashboards/README.md``.
+    ``timestamp`` is the **event time**, never the collection time. Both emit
+    paths write it verbatim: the OTLP path sets ``time_unix_nano`` from it (see
+    ``otlp``), and the VM import path renders it as the exposition timestamp.
     """
 
     name: str
@@ -56,5 +57,9 @@ def sample(name: str, value: object, ts: datetime, **labels: str) -> Sample | No
     if isinstance(value, (int, float)):
         numeric = float(value)
     else:
+        return None
+    # Python's json module accepts NaN/Infinity. Neither is a measurement, and
+    # both break the Prometheus renderer's int() formatting.
+    if not math.isfinite(numeric):
         return None
     return Sample(name=name, value=numeric, timestamp=ts, labels=dict(labels))

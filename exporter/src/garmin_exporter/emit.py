@@ -2,14 +2,14 @@
 
 Two paths, deliberately:
 
-* **OTLP** goes through the OTel Collector, which is what PLAN.md asks for and
-  what makes the pipeline observable. The datapoints carry the sample's own
-  event timestamp, so this path is idempotent too: re-running overwrites the
-  same points instead of appending new ones.
+* **OTLP** goes through the OTel Collector. It is the default for both the
+  live CronJob and the backfill Job, so the Collector is the single ingest
+  point. The datapoints carry the sample's own event timestamp, so this path
+  is idempotent: re-running overwrites the same points instead of appending.
 * **VM import** POSTs Prometheus exposition with an explicit timestamp to
-  ``/api/v1/import/prometheus``. This is what writes *history* -- a bounded
-  backfill job -- and it is the path to use when the Collector is not in the
-  way.
+  ``/api/v1/import/prometheus``. It is the escape hatch for when the Collector
+  is unavailable (``GARMIN_EMIT=vm``), and the reference the OTLP path is
+  tested against.
 
 Both write the same series: same names, same labels, same timestamps. The two
 paths differ only in transport, so a backfilled day and a live day are one

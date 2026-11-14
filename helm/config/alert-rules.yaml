@@ -1,0 +1,180 @@
+# Alert rules, evaluated by vmalert against VictoriaMetrics.
+#
+# Two properties of this data shape every expression below:
+#
+# * Exporter self-metrics arrive every 30 minutes, not every scrape interval.
+#   A raw instant selector or a short range ([5m]) usually finds nothing, so
+#   every selector here uses an explicit window at least as long as one run
+#   interval (max_over_time(...[1h]) etc.).
+# * Daily health metrics are one point per calendar day, stamped at 00:00 UTC,
+#   and today's point keeps changing until the day ends. Rules about health
+#   compare *completed* days (`offset 1d`), and carry their history inside the
+#   query rather than in `for:`, so a vmalert restart cannot reset them.
+#
+# Severity drives routing in alertmanager.yaml:
+#   critical -> data is not flowing; act today
+#   warning  -> data is degraded; look when convenient
+#   info     -> personal health signal; not a system fault
+
+groups:
+  # ------------------------------------------------------------------------ #
+  # Is the exporter running and succeeding?
+  # ------------------------------------------------------------------------ #
+  - name: garmin_exporter
+    interval: 1m
+    rules:
+      - alert: GarminExporterStale
+        # Runs happen but none has succeeded for 6h.
+        expr: time() - max(max_over_time(garmin_exporter_last_success_timestamp_seconds[1h])) > 21600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Garmin exporter has not succeeded in 6h"
+          description: "Last successful run was {{ $value | humanizeDuration }} ago. See docs/runbook.md#garminexporterstale."
+
+      - alert: GarminExporterSilent
+        # No self-metrics at all: the CronJob is not running, the image is
+        # broken, or the Collector is not forwarding. GarminExporterStale cannot
+        # see this case, because its input series has gone too.
+        expr: absent_over_time(garmin_exporter_run_success[2h])
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No exporter metrics for 2h"
+          description: "Nothing from garmin_exporter has reached VictoriaMetrics in 2h. Check the CronJob, then the Collector. See docs/runbook.md#garminexportersilent."
+
+      - alert: GarminExporterFailing
+        # Every run in the last 3h failed. Also covers a fresh install whose
+        # first run never succeeded (no last_success timestamp exists yet).
+        expr: max(max_over_time(garmin_exporter_run_success[3h])) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Every exporter run in the last 3h failed"
+          description: "See `make logs` and docs/runbook.md#garminexporterfailing."
+
+      - alert: GarminAuthFailing
+        # Garmin rejected the session. A CronJob cannot answer MFA, so this
+        # does not heal on its own: it needs `make login` + `make token-seed`.
+        expr: max(max_over_time(garmin_exporter_api_errors{kind="auth_error"}[1h])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Garmin rejected the exporter's session"
+          description: "Run `make login` then `make token-seed`. See docs/runbook.md#garminauthfailing."
+
+      - alert: GarminSourcesFailing
+        # Some sources fail on every run for 2h (4 runs). One-off failures are
+        # normal for an unofficial API and are deliberately not alerted on.
+        expr: min(min_over_time(garmin_exporter_sources_failed[2h])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} Garmin source(s) failing on every run for 2h"
+          description: "Partial data. `make logs` shows which source. See docs/runbook.md#garminsourcesfailing."
+
+      - alert: GarminSleepDataGap
+        # No sleep record dated within the last 36h. Sleep is attributed to
+        # the wake-up date, so a normal night keeps the newest point <= ~31h old.
+        expr: absent_over_time(garmin_daily_sleep_duration_seconds[36h])
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No new sleep record for 36h"
+          description: "Either the watch was not worn or not synced, or the sleep source is failing. See docs/runbook.md#garminsleepdatagap."
+
+  # ------------------------------------------------------------------------ #
+  # Is the OpenTelemetry Collector moving data?
+  #
+  # These read the Collector's own telemetry (prometheus/self receiver) and the
+  # count connector's flow counters; see docs/otel-collector.md. Metric names
+  # are matched by regex because the Prometheus translation may or may not add
+  # a `_total` suffix depending on the Collector version.
+  # ------------------------------------------------------------------------ #
+  - name: garmin_pipeline
+    interval: 1m
+    rules:
+      - alert: OtelCollectorDown
+        expr: absent_over_time(up{job="otel-collector"}[10m])
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OTel Collector is not reporting"
+          description: "No self-telemetry from the Collector in 10m. All Garmin ingest goes through it. See docs/runbook.md#otelcollectordown."
+
+      - alert: OtelCollectorExportFailing
+        expr: sum(increase({__name__=~"otelcol_exporter_(send|enqueue)_failed_metric_points(_total)?"}[15m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Collector failed to write {{ $value }} points to VictoriaMetrics in 15m"
+          description: "Remote write is failing or its queue is full; those points are lost. See docs/runbook.md#otelcollectorexportfailing."
+
+      - alert: OtelCollectorRefusingData
+        # The receiver refused data -- almost always memory_limiter under
+        # pressure. The exporter sees a gRPC error and the run fails.
+        expr: sum(increase({__name__=~"otelcol_receiver_refused_metric_points(_total)?"}[15m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Collector refused {{ $value }} points in 15m"
+          description: "Usually memory_limiter. See docs/runbook.md#otelcollectorrefusingdata."
+
+      - alert: GarminMetricStoppedArriving
+        # A metric that flowed through the Collector yesterday and not today.
+        # Activity metrics are excluded: no workout for a day is not a fault.
+        expr: |
+          (
+            sum by (metric_name) (increase({__name__=~"garmin_pipeline_datapoints(_total)?", metric_name!~"garmin_activity_.*"}[1d] offset 1d)) > 0
+          )
+          unless
+          (
+            sum by (metric_name) (increase({__name__=~"garmin_pipeline_datapoints(_total)?"}[1d])) > 0
+          )
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.metric_name }} stopped arriving at the Collector"
+          description: "It arrived in the previous 24h but not in the last 24h. Usually a Garmin source changed shape; compare a fresh `make dump`. See docs/runbook.md#garminmetricstoppedarriving."
+
+  # ------------------------------------------------------------------------ #
+  # Personal health signals. Informational, routed with a long repeat.
+  # ------------------------------------------------------------------------ #
+  - name: garmin_health
+    interval: 15m
+    rules:
+      - alert: GarminStepsBelowGoal
+        # Each of the last three *completed* days was below its goal. A window
+        # of [1d] ending at an `offset Nd` contains exactly that day's
+        # midnight-stamped point.
+        expr: |
+          (last_over_time(garmin_daily_steps[1d] offset 1d) < last_over_time(garmin_daily_steps_goal[1d] offset 1d))
+          and (last_over_time(garmin_daily_steps[1d] offset 2d) < last_over_time(garmin_daily_steps_goal[1d] offset 2d))
+          and (last_over_time(garmin_daily_steps[1d] offset 3d) < last_over_time(garmin_daily_steps_goal[1d] offset 3d))
+        labels:
+          severity: info
+        annotations:
+          summary: "Steps below goal three days running"
+          description: "Yesterday: {{ $value | printf \"%.0f\" }} steps."
+
+      - alert: GarminRestingHeartRateElevated
+        # Yesterday's resting HR is 10% above the 7 days before it -- a common
+        # early sign of illness, overtraining or poor recovery. Needs at least 5
+        # baseline days so a fresh install does not alert on noise.
+        expr: |
+          (
+            last_over_time(garmin_daily_resting_heart_rate[1d] offset 1d)
+              > 1.10 * avg_over_time(garmin_daily_resting_heart_rate[7d] offset 2d)
+          )
+          and count_over_time(garmin_daily_resting_heart_rate[7d] offset 2d) >= 5
+        labels:
+          severity: info
+        annotations:
+          summary: "Resting heart rate 10% above your 7-day baseline"
+          description: "Yesterday: {{ $value | printf \"%.0f\" }} bpm. Consider rest, hydration, or whether you are getting ill."

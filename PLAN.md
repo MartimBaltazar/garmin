@@ -5,7 +5,7 @@ A personal health observability stack on Kubernetes. A Python exporter pulls Gar
 
 **The resume bullet is true when:**
 - [ ] It runs on a real k3s cluster, not only locally
-- [ ] Dashboards and alerts are in git, not click-ops
+- [x] Dashboards and alerts are in git, not click-ops
 - [ ] Infra is Terraform and the app is Helm
 - [ ] CI lints, tests and builds the image
 - [ ] The README has a live link or screenshots
@@ -13,8 +13,9 @@ A personal health observability stack on Kubernetes. A Python exporter pulls Gar
 ## 1. Architecture
 ```
 Garmin Connect ──► exporter (CronJob, Python)
-                      ├─ live path:     OTel SDK ─► OTel Collector ─► VictoriaMetrics
-                      └─ backfill path: direct import API ──────────► VictoriaMetrics
+                      ├─ live path:     OTLP ─► OTel Collector ─► VictoriaMetrics
+                      └─ backfill path: OTLP ─► OTel Collector ─► VictoriaMetrics
+                         (escape hatch: GARMIN_EMIT=vm, direct import API)
                                                                          │
 Cloudflare Access + Tunnel ◄── Grafana ◄────────────────────────────────┘
                                   └─ alerts-as-code
@@ -27,6 +28,11 @@ only one value per attribute set, so it cannot express "one point per calendar d
 timestamp itself. The Collector stays a pass-through. Backfill writes straight to VictoriaMetrics
 (`/api/v1/import/prometheus` with explicit timestamps) because it is a bounded one-shot job that
 does not need the Collector. Both paths are idempotent and write the same series.
+
+**Update:** backfill now goes through the Collector too (`GARMIN_EMIT=otlp` is the
+default for both). Because the exporter sets `time_unix_nano` itself, OTLP carries
+history fine, and one ingest point is simpler to operate and to observe. The direct
+import stays as `GARMIN_EMIT=vm`. See `docs/otel-collector.md`.
 
 ## 2. Repo layout
 ```
@@ -66,7 +72,7 @@ garmin-observability/
 - [x] Self-observability: metrics for run success, duration, API errors and last-success timestamp (this feeds an alert later)
 - [x] Structured logging, retry with backoff, a Garmin rate-limit guard
 - [x] Dockerfile: multi-stage, non-root, pinned deps
-- [ ] Tests: pytest on fixtures (87 tests, green), plus one integration test against a local VictoriaMetrics container
+- [ ] Tests: pytest on fixtures, plus an integration test against real containers. **Written** (`tests/test_e2e_pipeline.py`, CI job `e2e`: real Collector + real VictoriaMetrics); tick after the first green run.
 
 ## 5. Phase 3: Local cluster (week 1-2)
 - [x] **Local cluster: minikube, not k3d.** k3d was the original choice for k3s parity with the Oracle target, but minikube was already installed with a working profile, k3d was not, and every manifest here is vanilla Kubernetes -- no k3s-specific CRDs, no Traefik, no k3s ingress. The parity argument only starts to pay off in Phase 7, and it costs nothing to switch then: the manifests are the same either way. The manifests in `deploy/` are the contract the Phase 4 Helm chart has to reproduce.
@@ -78,14 +84,14 @@ garmin-observability/
 - [x] A one-shot backfill Job (`deploy/50-backfill-job.yaml`, rendered by `make cluster-backfill FROM= TO=`)
 - [x] Persistent volumes for VictoriaMetrics, Grafana and the exporter's token store
 - [x] `make up / down / backfill / test / query / logs / grafana` targets
-- [ ] **End-to-end verification**: exporter → Collector → VictoriaMetrics, and the event timestamps and label sets of the resulting series
+- [ ] **End-to-end verification**: exporter → Collector → VictoriaMetrics, and the event timestamps and label sets of the resulting series. Automated in CI's `e2e` job; tick after the first green run.
 
 ## 6. Phase 4: Helm chart (week 2)
 - [ ] Own chart for the exporter and CronJobs, with `values.yaml` for local and `values-prod.yaml`
 - [ ] Reuse upstream charts (VictoriaMetrics, Grafana, OTel Collector) as dependencies instead of rewriting them
 - [ ] Resource requests and limits sized for a small ARM node
 - [ ] Liveness/readiness probes where applicable
-- [ ] `helm lint` and `helm template | kubeconform` in CI
+- [x] `helm lint` and `helm template | kubeconform` in CI
 
 ## 7. Phase 5: Dashboards and alerts as code (week 2-3)
 - [ ] **Dashboards in git**, provisioned via sidecar or ConfigMap: Daily Overview, Sleep, Training Load, Exporter Health
@@ -97,15 +103,15 @@ garmin-observability/
   - Garmin auth failing
   - Data gap (no new sleep record for 36h)
   - Optional personal: resting HR up 10% over a 7-day baseline
-- [ ] Route alerts to a free notification channel (Telegram or email), not a paging service
+- [x] Route alerts to a free notification channel (Telegram or email), not a paging service Done: WhatsApp via CallMeBot, `deploy/80-whatsapp-gateway.yaml`.
 
 ## 8. Phase 6: CI/CD (week 3)
 GitHub Actions, since the repo is public:
-- [ ] Lint (ruff), type check (mypy), tests (pytest)
+- [x] Lint (ruff), type check (mypy), tests (pytest)
 - [ ] `helm lint`, `kubeconform`, `terraform fmt/validate`, `tflint`
-- [ ] Build and push the image to GHCR on tag, multi-arch (`linux/arm64` is required for Oracle ARM)
-- [ ] Dependabot or Renovate for deps
-- [ ] Secret scanning (gitleaks) as a CI step, given the Garmin credentials
+- [x] Build and push the image to GHCR on tag, multi-arch (`linux/arm64` is required for Oracle ARM)
+- [x] Dependabot or Renovate for deps
+- [x] Secret scanning (gitleaks) as a CI step, given the Garmin credentials
 
 ## 9. Phase 7: Oracle Always Free + Terraform (week 3)
 - [ ] **Start the Oracle signup and instance creation attempt now.** ARM capacity is often unavailable, so retry in the background. Fallback: Hetzner CAX11, about EUR 4-5, same code.
