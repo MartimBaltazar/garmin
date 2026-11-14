@@ -157,7 +157,10 @@ def test_count_connector_reports_flow_per_metric(shipped) -> None:
 
 
 def test_collector_self_telemetry_is_stored(shipped) -> None:
-    series = _eventually(lambda: _export('up{job="otel-collector"}'), timeout=120)
+    uptime = '{__name__=~"otelcol_process_uptime(_total)?"}'
+    series = _eventually(lambda: _export(uptime), timeout=120)
     assert series, "prometheus/self receiver produced nothing"
+    # OtelCollectorDown depends on this name; the job label is not relied on.
+    assert all(not s["metric"]["__name__"].startswith("garmin_") for s in series)
     accepted = _export('{__name__=~"otelcol_receiver_accepted_metric_points(_total)?"}')
     assert accepted, "internal telemetry is not at level normal, or names changed"

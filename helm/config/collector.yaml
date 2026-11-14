@@ -136,7 +136,8 @@ exporters:
     # collector setting suppresses it -- `resource_constant_labels` and the
     # deprecated `resource_to_telemetry_conversion` only govern the *other*
     # resource attributes. So the exporter sends an empty resource instead.
-    # (The self-scrape *does* carry job="otel-collector"; that is wanted.)
+    # (The self-scrape *does* carry job/instance labels -- job="otelcol-contrib",
+    # the Collector's own service.name -- and that is wanted.)
     retry_on_failure:
       enabled: true
       initial_interval: 5s

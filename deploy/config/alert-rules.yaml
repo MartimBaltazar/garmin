@@ -99,7 +99,10 @@ groups:
     interval: 1m
     rules:
       - alert: OtelCollectorDown
-        expr: absent_over_time(up{job="otel-collector"}[10m])
+        # Matched by name, not by `job`: the stored job label is the
+        # Collector's own service.name ("otelcol-contrib"), not the scrape
+        # job's name, and it changes if the distribution does.
+        expr: absent_over_time({__name__=~"otelcol_process_uptime(_total)?"}[10m])
         for: 5m
         labels:
           severity: critical
