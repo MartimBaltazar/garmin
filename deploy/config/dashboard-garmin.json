@@ -127,7 +127,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max(garmin_exporter_last_success_timestamp_seconds)",
+          "expr": "time() - max(max_over_time(garmin_exporter_last_success_timestamp_seconds[1h]))",
           "legendFormat": "age"
         }
       ],
@@ -181,7 +181,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(garmin_exporter_api_errors_total[7d]))"
+          "expr": "sum(sum_over_time(garmin_exporter_api_errors[7d]))"
         }
       ],
       "fieldConfig": {

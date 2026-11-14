@@ -142,8 +142,16 @@ Every run emits its own metrics, including on failure:
 | `garmin_exporter_last_success_timestamp_seconds` | Drives the "no success in 6h" alert |
 | `garmin_exporter_run_success` | 0 on any failure, so the alert sees failures that never wrote data |
 | `garmin_exporter_run_duration_seconds` | Catch a slow/stuck run before it trips the job deadline |
-| `garmin_exporter_api_errors_total{kind}` | Distinguish auth failures from rate limits from network |
+| `garmin_exporter_api_errors{kind}` | Per-run error count. Distinguishes auth failures from rate limits from network |
+| `garmin_exporter_sources_failed` | Sources that failed this run; always emitted (0 when clean) so alerts see a dense series |
 | `garmin_exporter_samples_emitted` | Sanity check: a successful run that emitted 0 samples is a bug |
+
+A run only counts as successful if it produced data. If every source fails,
+or nothing comes back and something errored, the run exits 1, emits
+`run_success 0` and does **not** advance `last_success`. A 401/403 from Garmin
+partway through a run stops the run straight away as an auth failure rather
+than trying the remaining endpoints. Retries apply only to 429, 5xx and
+transport errors.
 
 `last_success` is persisted to a small state file on the token volume, because
 CronJob pods are otherwise stateless.

@@ -60,7 +60,10 @@ metadata:
     app.kubernetes.io/name: grafana
     {{- include "garmin.labels" . | nindent 4 }}
 data:
-{{ (.Files.Glob "config/dashboard.json").AsConfig | indent 2 }}
+  dashboard.json: |-
+{{ .Files.Get "config/dashboard-garmin.json" | indent 4 }}
+  pipeline.json: |-
+{{ .Files.Get "config/dashboard-pipeline.json" | indent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment

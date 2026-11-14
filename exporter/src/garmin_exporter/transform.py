@@ -552,7 +552,9 @@ def activity_samples(activities: list[Any]) -> list[Sample]:
         activity_id = _first(item, "activityId")
         if activity_id is None:
             continue
-        ts = _instant(item, "startTimeGMT", "beginTimestamp", "startTimeLocal")
+        # No ``startTimeLocal`` fallback: it has the same format as the GMT
+        # field, and parsing it as UTC would shift the activity by the offset.
+        ts = _instant(item, "startTimeGMT", "beginTimestamp")
         if ts is None:
             out.note_missing("activity:no_start_time")
             continue

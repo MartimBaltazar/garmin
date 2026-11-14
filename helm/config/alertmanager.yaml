@@ -1,0 +1,50 @@
+# Alertmanager: one receiver, routed by severity.
+#
+# Everything goes to WhatsApp through deploy/helper/whatsapp-gateway.py.
+# Alertmanager has no native WhatsApp integration, so the gateway turns the
+# webhook into a CallMeBot call. It is a personal stack: one person, one free
+# channel, no paging service.
+#
+# Severity changes how often a still-firing alert is repeated, not where it
+# goes. See alert-rules.yaml for what each severity means.
+
+route:
+  receiver: whatsapp
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    - matchers: ['severity="critical"']
+      repeat_interval: 4h
+    - matchers: ['severity="info"']
+      # Health nudges: batch them and say it once a day at most.
+      group_wait: 5m
+      repeat_interval: 24h
+
+receivers:
+  - name: whatsapp
+    webhook_configs:
+      - url: http://whatsapp-gateway.garmin.svc.cluster.local:8080/send
+        send_resolved: true
+        max_alerts: 10
+        http_config:
+          # Alertmanager cannot sign webhooks, but it can send a bearer token.
+          # The token is a Secret created by `make secret`, mounted here and
+          # into the gateway; the gateway rejects requests without it.
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager-secrets/webhook-token
+
+inhibit_rules:
+  # A rejected session explains every other exporter symptom.
+  - source_matchers: ['alertname="GarminAuthFailing"']
+    target_matchers:
+      - alertname=~"GarminExporterStale|GarminExporterFailing|GarminSourcesFailing|GarminSleepDataGap|GarminMetricStoppedArriving"
+  # So does a dead Collector: nothing downstream of it can arrive.
+  - source_matchers: ['alertname="OtelCollectorDown"']
+    target_matchers:
+      - alertname=~"GarminExporterSilent|GarminExporterStale|GarminSleepDataGap|GarminMetricStoppedArriving"
+  # While the exporter is down, "data is missing" alerts are noise.
+  - source_matchers: ['severity="critical"']
+    target_matchers: ['severity="warning"']

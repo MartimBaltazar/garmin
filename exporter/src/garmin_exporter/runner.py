@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .auth import AuthError
 from .config import Config
-from .emit import Emitter, VmImportEmitter, build_emitter
+from .emit import Emitter, build_emitter
 from .fetch import Fetcher, RawPayloads
 from .models import Sample, sample
 from .transform import transform_all
@@ -27,8 +27,35 @@ log = logging.getLogger(__name__)
 METRIC_LAST_SUCCESS = "garmin_exporter_last_success_timestamp_seconds"
 METRIC_RUN_SUCCESS = "garmin_exporter_run_success"
 METRIC_RUN_DURATION = "garmin_exporter_run_duration_seconds"
-METRIC_API_ERRORS = "garmin_exporter_api_errors_total"
+# A per-run gauge, not a counter: each run reports the errors *it* saw, so the
+# name carries no ``_total`` suffix (which would promise ``rate()`` semantics).
+METRIC_API_ERRORS = "garmin_exporter_api_errors"
+# Always emitted, 0 on a clean run, so alerts see a dense series instead of
+# one that only exists when something went wrong.
+METRIC_SOURCES_FAILED = "garmin_exporter_sources_failed"
 METRIC_SAMPLES = "garmin_exporter_samples_emitted"
+
+#: Backfill chunk size. Matches the fetcher's tightest server-side window, so a
+#: chunk is one call per range source instead of a 28-day call plus a 2-day one.
+DEFAULT_BACKFILL_CHUNK_DAYS = 28
+
+
+class RunFailed(RuntimeError):
+    """The run talked to Garmin but produced nothing trustworthy."""
+
+
+def check_outcome(payloads: RawPayloads, samples: list[Sample]) -> None:
+    """Decide whether a run that did not raise actually succeeded.
+
+    Each source fails independently and the fetcher carries on, which is right
+    for partial outages -- but it means a run where *every* call failed would
+    otherwise reach ``_record_success`` and push ``last_success`` forward. That
+    silences the staleness alert in exactly the case it exists for.
+    """
+    if payloads.all_sources_failed():
+        raise RunFailed(f"all {payloads.attempted_sources} sources failed")
+    if not samples and payloads.errors:
+        raise RunFailed("no samples produced and the fetch reported errors")
 
 
 def run_live(cfg: Config) -> int:
@@ -37,11 +64,11 @@ def run_live(cfg: Config) -> int:
     today = datetime.now(UTC).date()
     start = today - timedelta(days=cfg.lookback_days)
     emitter = build_emitter(cfg)
+    payloads: RawPayloads | None = None
     try:
         payloads = Fetcher(cfg).fetch_range(start.isoformat(), today.isoformat())
         samples = transform_all(payloads)
-        if not samples:
-            log.warning("no samples produced", extra={"errors": dict(payloads.errors)})
+        check_outcome(payloads, samples)
         emitter.emit(samples)
         _record_success(cfg)
         _emit_self(
@@ -49,7 +76,7 @@ def run_live(cfg: Config) -> int:
             success=True,
             duration=time.monotonic() - started,
             samples=len(samples),
-            errors=payloads.errors,
+            payloads=payloads,
             cfg=cfg,
         )
         return 0
@@ -62,19 +89,24 @@ def run_live(cfg: Config) -> int:
             success=False,
             duration=time.monotonic() - started,
             samples=0,
-            errors={"auth_error": 1},
+            payloads=payloads,
+            extra_errors={"auth_error": 1},
             cfg=cfg,
             error=str(exc),
         )
         return 1
     except Exception as exc:  # noqa: BLE001 - the process exit code is the contract
-        log.exception("run failed")
+        if isinstance(exc, RunFailed):
+            log.error("run produced no usable data", extra={"error": str(exc)})
+        else:
+            log.exception("run failed")
         _emit_self(
             emitter,
             success=False,
             duration=time.monotonic() - started,
             samples=0,
-            errors={type(exc).__name__: 1},
+            payloads=payloads,
+            extra_errors={type(exc).__name__: 1},
             cfg=cfg,
             error=str(exc),
         )
@@ -83,34 +115,52 @@ def run_live(cfg: Config) -> int:
         emitter.close()
 
 
-def run_backfill(cfg: Config, start: str, end: str, chunk_days: int = 30) -> int:
-    """Replay history with explicit timestamps.
+def run_backfill(
+    cfg: Config, start: str, end: str, chunk_days: int = DEFAULT_BACKFILL_CHUNK_DAYS
+) -> int:
+    """Replay history with explicit event timestamps.
 
-    Always writes to VictoriaMetrics directly: the OTel SDK stamps at
-    observation time, so OTLP cannot express the past. ``GARMIN_EMIT`` is
-    ignored here on purpose.
+    Uses the same emitter as the live path (``GARMIN_EMIT``, default ``otlp``),
+    so history flows through the Collector like everything else. That works
+    because ``otlp`` sets each datapoint's ``time_unix_nano`` itself -- the
+    OTLP *protocol* carries event time fine; only the SDK's gauge API cannot.
+    ``GARMIN_EMIT=vm`` remains as an escape hatch that writes straight to
+    VictoriaMetrics' import API, e.g. when the Collector is down.
+
+    Chunks are written as they are fetched. If a chunk fails, the log line
+    names the first day that was *not* written, so the backfill can be resumed
+    with ``--from`` instead of starting over. Re-running a chunk is harmless:
+    a sample's timestamp is part of its identity, so points overwrite.
     """
-    if not cfg.vm_url:
-        log.error("backfill requires GARMIN_VM_URL (OTLP cannot carry event timestamps)")
+    if cfg.emit in ("vm", "both") and not cfg.vm_url:
+        log.error("GARMIN_EMIT=vm requires GARMIN_VM_URL")
+        return 2
+    if chunk_days < 1:
+        log.error("--chunk-days must be >= 1")
         return 2
 
-    started = time.monotonic()
-    emitter = VmImportEmitter(cfg.vm_url)
-    total = 0
-    errors: dict[str, int] = {}
     try:
         cursor = datetime.strptime(start, "%Y-%m-%d").date()
         finish = datetime.strptime(end, "%Y-%m-%d").date()
-        if cursor > finish:
-            log.error("--from must not be after --to")
-            return 2
+    except ValueError as exc:
+        log.error("invalid date", extra={"error": str(exc)})
+        return 2
+    if cursor > finish:
+        log.error("--from must not be after --to")
+        return 2
 
+    started = time.monotonic()
+    emitter = build_emitter(cfg)
+    total = 0
+    errors: dict[str, int] = {}
+    try:
+        fetcher = Fetcher(cfg)
         while cursor <= finish:
             chunk_end = min(cursor + timedelta(days=chunk_days - 1), finish)
             log.info(
                 "backfill chunk", extra={"from": cursor.isoformat(), "to": chunk_end.isoformat()}
             )
-            payloads = Fetcher(cfg).fetch_range(cursor.isoformat(), chunk_end.isoformat())
+            payloads = fetcher.fetch_range(cursor.isoformat(), chunk_end.isoformat())
             samples = transform_all(payloads)
             emitter.emit(samples)
             total += len(samples)
@@ -121,11 +171,22 @@ def run_backfill(cfg: Config, start: str, end: str, chunk_days: int = 30) -> int
         _record_success(cfg)
         log.info(
             "backfill complete",
-            extra={"samples": total, "duration_s": round(time.monotonic() - started, 2)},
+            extra={
+                "samples": total,
+                "errors": errors,
+                "duration_s": round(time.monotonic() - started, 2),
+            },
         )
         return 0
     except Exception:  # noqa: BLE001
-        log.exception("backfill failed", extra={"samples_before_failure": total})
+        log.exception(
+            "backfill failed",
+            extra={
+                "samples_before_failure": total,
+                "resume_from": cursor.isoformat(),
+                "hint": f"re-run with --from {cursor.isoformat()} --to {finish.isoformat()}",
+            },
+        )
         return 1
     finally:
         emitter.close()
@@ -210,12 +271,17 @@ def _emit_self(
     success: bool,
     duration: float,
     samples: int,
-    errors: dict[str, int],
     cfg: Config,
+    payloads: RawPayloads | None = None,
+    extra_errors: dict[str, int] | None = None,
     error: str | None = None,
 ) -> None:
     now = datetime.now(UTC)
     last_success = _read_state(cfg).get("last_success")
+    errors: dict[str, int] = dict(payloads.errors) if payloads is not None else {}
+    for kind, count in (extra_errors or {}).items():
+        errors[kind] = errors.get(kind, 0) + count
+    failed_sources = len(payloads.failed_sources) if payloads is not None else 0
 
     self_samples: list[Sample] = [
         item
@@ -223,6 +289,7 @@ def _emit_self(
             sample(METRIC_RUN_SUCCESS, 1.0 if success else 0.0, now),
             sample(METRIC_RUN_DURATION, duration, now),
             sample(METRIC_SAMPLES, float(samples), now),
+            sample(METRIC_SOURCES_FAILED, float(failed_sources), now),
             sample(METRIC_LAST_SUCCESS, last_success, now),
         )
         if item is not None

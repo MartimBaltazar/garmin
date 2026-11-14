@@ -1,6 +1,7 @@
 .PHONY: help venv install test lint fmt image config login dump dry-run backfill clean \
-        cluster-up image-load secret token-seed up down status logs grafana \
-        cluster-backfill sync query
+        cluster-up image-load secret whatsapp-secret token-seed up down nuke status logs \
+        grafana cluster-backfill sync query chart-sync chart-check collector-debug \
+        collector-logs screenshots
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -72,10 +73,23 @@ cluster-up: ## Start minikube if it is not running
 image-load: image ## Build the exporter image and load it into minikube
 	minikube image load -p minikube $(IMAGE)
 
-secret: ## Create the Grafana admin Secret (never committed)
+secret: ## Create the Grafana admin Secret and the Alertmanager->gateway token (never committed)
+	@$(KUBECTL) get namespace $(NS) >/dev/null 2>&1 || $(KUBECTL) create namespace $(NS)
 	@$(KUBECTL) -n $(NS) create secret generic grafana-credentials \
 		--from-literal=password="$$GRAFANA_PASSWORD" \
 		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+	@# Generated once and then kept: rotating it on every `make up` would
+	@# break Alertmanager until both pods restarted.
+	@$(KUBECTL) -n $(NS) get secret alert-webhook-token >/dev/null 2>&1 || \
+		$(KUBECTL) -n $(NS) create secret generic alert-webhook-token \
+			--from-literal=webhook-token="$$(openssl rand -hex 32)"
+
+whatsapp-secret: ## Store CallMeBot credentials. Usage: make whatsapp-secret PHONE=+351... APIKEY=...
+	@test -n "$(PHONE)" -a -n "$(APIKEY)" || { echo "usage: make whatsapp-secret PHONE=+351XXXXXXXXX APIKEY=XXXXXX"; exit 1; }
+	@$(KUBECTL) -n $(NS) create secret generic whatsapp-credentials \
+		--from-literal=phone="$(PHONE)" --from-literal=apikey="$(APIKEY)" \
+		--dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(KUBECTL) -n $(NS) rollout restart deployment/whatsapp-gateway
 
 token-seed: ## Copy the local Garmin token file into the cluster's token PVC
 	@test -f exporter/.tokens/garmin_tokens.json || { \
@@ -96,12 +110,19 @@ up: cluster-up image-load secret ## Bring up the whole local stack
 	$(KUBECTL) -n $(NS) wait --for=condition=Available deployment/victoriametrics --timeout=300s
 	$(KUBECTL) -n $(NS) wait --for=condition=Available deployment/otel-collector --timeout=300s
 	$(KUBECTL) -n $(NS) wait --for=condition=Available deployment/grafana --timeout=300s
+	$(KUBECTL) -n $(NS) wait --for=condition=Available deployment/whatsapp-gateway --timeout=300s
 	$(MAKE) token-seed
 	@echo
 	@echo "Grafana:   make grafana   (then open http://localhost:3000, admin / $$GRAFANA_PASSWORD)"
 	@echo "VictoriaMetrics: make query Q='garmin_daily_steps'"
 
-down: ## Remove the stack, including its data (keeps the cluster running)
+down: ## Stop the stack but keep its data (PVCs, Secrets). `make up` resumes.
+	-$(KUBECTL) -n $(NS) delete cronjob,job,deployment,service,configmap --all --ignore-not-found
+	@echo "stopped; PVCs and Secrets kept. 'make nuke' deletes everything."
+
+nuke: ## Delete the namespace, INCLUDING all stored metrics and the Garmin tokens
+	@printf "This deletes every stored metric and the Garmin token. Type 'nuke' to continue: "; \
+		read answer; test "$$answer" = nuke
 	$(KUBECTL) delete namespace $(NS) --ignore-not-found
 
 status: ## Show what is running
@@ -128,3 +149,43 @@ sync: ## Force a one-off exporter run (uses cached tokens, no MFA). Usage: make 
 query: ## Query VictoriaMetrics. Usage: make query Q='garmin_daily_steps'
 	$(KUBECTL) -n $(NS) exec deployment/victoriametrics -- \
 		wget -qO- "http://127.0.0.1:8428/api/v1/query?query=$(Q)"
+
+# --- OpenTelemetry Collector ---------------------------------------------- #
+collector-debug: ## Port-forward the Collector's zpages (pipeline graph) and self-metrics
+	@echo "zpages:       http://localhost:55679/debug/pipelinez"
+	@echo "self-metrics: http://localhost:8888/metrics"
+	$(KUBECTL) -n $(NS) port-forward deployment/otel-collector 55679:55679 8888:8888
+
+collector-logs: ## Tail the Collector's logs
+	$(KUBECTL) -n $(NS) logs deployment/otel-collector -f --tail=100
+
+# --- Helm chart ----------------------------------------------------------- #
+# deploy/config/ is the single source of truth. Helm cannot read files outside
+# its chart directory, so the chart carries byte-identical copies; CI fails if
+# they drift (`make chart-check`).
+CHART_FILES := collector.yaml alert-rules.yaml alertmanager.yaml \
+               dashboard-garmin.json dashboard-pipeline.json
+
+chart-sync: ## Copy deploy/config/ into the Helm chart
+	@for f in $(CHART_FILES); do cp deploy/config/$$f helm/config/$$f; done
+	@cp deploy/helper/whatsapp-gateway.py helm/config/whatsapp-gateway.py
+	@echo "helm/config synced from deploy/config"
+
+chart-check: ## Fail if the Helm chart's config copies differ from deploy/config/
+	@status=0; \
+	for f in $(CHART_FILES); do \
+		cmp -s deploy/config/$$f helm/config/$$f || { echo "drift: helm/config/$$f"; status=1; }; \
+	done; \
+	cmp -s deploy/helper/whatsapp-gateway.py helm/config/whatsapp-gateway.py || { echo "drift: helm/config/whatsapp-gateway.py"; status=1; }; \
+	test $$status -eq 0 && echo "chart config in sync" || { echo "run 'make chart-sync'"; exit 1; }
+
+# --- README screenshots --------------------------------------------------- #
+screenshots: ## Capture dashboard screenshots into assets/screenshots (needs `make grafana` running)
+	@mkdir -p assets/screenshots
+	docker run --rm --add-host=host.docker.internal:host-gateway \
+		-e GRAFANA_URL=http://host.docker.internal:3000 \
+		-e GRAFANA_USER=admin -e GRAFANA_PASSWORD="$$GRAFANA_PASSWORD" \
+		-v "$(CURDIR)/hack/screenshots.py:/screenshots.py:ro" \
+		-v "$(CURDIR)/assets/screenshots:/out" \
+		mcr.microsoft.com/playwright/python:v1.49.0-noble \
+		python /screenshots.py

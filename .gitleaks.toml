@@ -1,0 +1,13 @@
+# gitleaks configuration: the default rules, plus an allowlist for
+# placeholders that were committed in early versions of
+# deploy/config/alertmanager.yaml and were never real credentials. CI scans the
+# full history, so they would otherwise fail every build.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder values, not credentials"
+regexes = [
+  '''hooks\.slack\.com/services/T0+/B0+/X+''',
+  '''YOUR_PAGERDUTY_SERVICE_KEY''',
+]

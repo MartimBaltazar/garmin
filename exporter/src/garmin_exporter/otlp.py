@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from importlib.metadata import PackageNotFoundError, version
 from urllib.parse import urlparse
 
 import grpc
@@ -59,8 +60,21 @@ from .models import Sample
 log = logging.getLogger(__name__)
 
 SCOPE_NAME = "garmin_exporter"
-SCOPE_VERSION = "0.1.0"
 DEFAULT_OTLP_PORT = 4317
+#: Datapoints per Export call. A year of intraday backfill is hundreds of
+#: thousands of points; one request that size would exceed gRPC's default 4 MiB
+#: message limit on the Collector's receiver. 5k points is ~200-300 KiB.
+MAX_POINTS_PER_REQUEST = 5_000
+
+
+def _package_version() -> str:
+    try:
+        return version("garmin-exporter")
+    except PackageNotFoundError:  # running from a source tree without install
+        return "0.0.0+unknown"
+
+
+SCOPE_VERSION = _package_version()
 
 
 def grpc_target(endpoint: str) -> str:
@@ -153,9 +167,13 @@ class OtlpExporter:
         *,
         insecure: bool = True,
         timeout: float = 15.0,
+        max_points_per_request: int = MAX_POINTS_PER_REQUEST,
     ) -> None:
+        if max_points_per_request < 1:
+            raise ValueError("max_points_per_request must be >= 1")
         self._target = grpc_target(endpoint)
         self._timeout = timeout
+        self._max_points = max_points_per_request
         if insecure:
             self._channel = grpc.insecure_channel(self._target)
         else:
@@ -169,12 +187,24 @@ class OtlpExporter:
     def export(self, samples: Sequence[Sample]) -> None:
         if not samples:
             return
-        request = build_request(samples)
-        self._stub.Export(request, timeout=self._timeout)
-        metrics = len(request.resource_metrics[0].scope_metrics[0].metrics)
+        requests = 0
+        for offset in range(0, len(samples), self._max_points):
+            request = build_request(samples[offset : offset + self._max_points])
+            response = self._stub.Export(request, timeout=self._timeout)
+            requests += 1
+            # The Collector answers with a partial_success when it rejected some
+            # points (e.g. a malformed datapoint). gRPC still reports OK, so
+            # this is the only place the rejection is visible.
+            partial = getattr(response, "partial_success", None)
+            rejected = getattr(partial, "rejected_data_points", 0)
+            if rejected:
+                log.warning(
+                    "collector rejected datapoints",
+                    extra={"rejected": rejected, "message": getattr(partial, "error_message", "")},
+                )
         log.info(
             "exported over otlp",
-            extra={"samples": len(samples), "metrics": metrics},
+            extra={"samples": len(samples), "requests": requests, "target": self._target},
         )
 
     def close(self) -> None:

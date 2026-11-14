@@ -193,7 +193,14 @@ regardless. It also powers the `$activity` template variable that replaces their
 | `garmin_exporter_run_success` | 0/1 | The alert signal that works even when nothing was written |
 | `garmin_exporter_run_duration_seconds` | s | Gauge, not a histogram — one observation per run |
 | `garmin_exporter_samples_emitted` | count | A successful run emitting 0 is a bug |
-| `garmin_exporter_api_errors_total` | count | `kind` label (`auth_error`, `<source>:error`, …) |
+| `garmin_exporter_api_errors` | count | Per-run gauge (not a counter, hence no `_total`). `kind` label (`auth_error`, `<source>:error`, …) |
+| `garmin_exporter_sources_failed` | count | Always emitted, 0 on a clean run |
+
+**Pipeline flow (`garmin_pipeline_*`)**: written by the Collector's count connector, not by the exporter
+
+| Metric | Unit | Notes |
+|---|---|---|
+| `garmin_pipeline_datapoints_total` | count | Cumulative datapoints received over OTLP, `metric_name` label. See docs/otel-collector.md |
 
 ## 6. Implementation notes
 

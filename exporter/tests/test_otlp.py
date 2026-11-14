@@ -13,7 +13,7 @@ it.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -166,3 +166,35 @@ def test_values_are_exported_as_doubles() -> None:
     request = build_request([sample("garmin_daily_steps", 11234, DAY)])
     point = _points(request, "garmin_daily_steps")[0]
     assert point.as_double == 11234.0
+
+
+def test_large_exports_are_split_into_bounded_requests() -> None:
+    """A year of intraday backfill must not become one oversized gRPC message."""
+    from garmin_exporter.otlp import OtlpExporter
+
+    class FakeStub:
+        def __init__(self) -> None:
+            self.sizes: list[int] = []
+
+        def Export(self, request, timeout):  # noqa: N802 - gRPC method name
+            gauge_points = sum(
+                len(m.gauge.data_points)
+                for m in request.resource_metrics[0].scope_metrics[0].metrics
+            )
+            self.sizes.append(gauge_points)
+            return None
+
+    exporter = OtlpExporter("localhost:4317", max_points_per_request=4)
+    stub = FakeStub()
+    exporter._stub = stub  # type: ignore[assignment]
+    base = datetime(2026, 10, 28, tzinfo=UTC)
+    samples = [
+        s
+        for s in (
+            sample("garmin_heart_rate", 60 + i, base + timedelta(minutes=i)) for i in range(10)
+        )
+        if s is not None
+    ]
+    exporter.export(samples)
+    exporter.close()
+    assert stub.sizes == [4, 4, 2]

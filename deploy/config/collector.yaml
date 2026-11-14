@@ -1,61 +1,186 @@
-# The Collector is a pass-through: it receives OTLP, batches, retries and
-# writes to VictoriaMetrics. It does not interpret the data.
+# OpenTelemetry Collector: the single ingest point of the stack.
 #
-# One thing it must NOT do is add labels of its own. The Collector's
-# prometheus_remote_write exporter converts `service.name` and
-# `service.instance.id` into `job` and `instance` labels by default. The
-# backfill path writes straight to VictoriaMetrics and has no such labels --
-# so without this exclusion the same metric would exist as two different
-# series, and every dashboard would silently show only half the data.
+# Every Garmin datapoint -- live CronJob and backfill Job alike -- enters here
+# over OTLP and leaves as Prometheus remote write to VictoriaMetrics. The
+# Collector also measures itself and the flow through it, and writes those
+# metrics to the same place, so the pipeline is observable with the same
+# Grafana and the same alerting as the health data.
+#
+# Read docs/otel-collector.md before changing this file. The short version of
+# the graph:
+#
+#   otlp ──┬─► metrics/garmin ──────────────► prometheus_remote_write ─► VM
+#          │   memory_limiter, filter, batch
+#          │
+#          └─► metrics/flow ─► [count] ──┐
+#              memory_limiter, filter,   │
+#              transform                 ▼
+#   prometheus/self ───────────► metrics/pipeline ─► prometheus_remote_write ─► VM
+#                                memory_limiter, delta_to_cumulative, batch
+#
+# Two invariants this file must keep (tests/test_collector_config.py checks
+# them):
+#   1. The Garmin pipeline adds no labels. The exporter writes bare series;
+#      a `job`, `instance` or `otel_scope_*` label would split every metric.
+#   2. The Garmin pipeline does not rename or reshape anything. The Collector
+#      transports; it does not interpret.
+
+extensions:
+  # Liveness/readiness target for the kubelet. Bound on all interfaces because
+  # probes come from the node, not from inside the pod.
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # Live debugging pages: /debug/pipelinez (the pipeline graph as the Collector
+  # built it), /debug/tracez, /debug/servicez. localhost only; reach it with
+  # `make collector-debug`.
+  zpages:
+    endpoint: localhost:55679
+  # Go profiler, for the day the Collector uses more memory than expected.
+  pprof:
+    endpoint: localhost:1777
+
 receivers:
+  # The exporter's entry point. gRPC is what garmin_exporter speaks; HTTP is
+  # kept for curl-level debugging (see docs/otel-collector.md).
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        # The exporter splits requests at 5k points (~300 KiB); 16 MiB leaves
+        # room for a misconfigured client without rejecting it outright.
+        max_recv_msg_size_mib: 16
       http:
         endpoint: 0.0.0.0:4318
 
-extensions:
-  health_check:
-    endpoint: 0.0.0.0:13133
+  # The Collector's own telemetry (service.telemetry below serves it on
+  # localhost:8888). Scraping ourselves and sending it down the normal export
+  # path means "is the pipeline healthy?" is a PromQL query, not a log search.
+  prometheus/self:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["localhost:8888"]
+
+connectors:
+  # A connector is an exporter of one pipeline and a receiver of another. This
+  # one turns the *flow* of Garmin data into metrics: one counter per metric
+  # name, so "which metrics stopped arriving" is answerable at the Collector,
+  # independent of what made it into storage.
+  count:
+    datapoints:
+      garmin_pipeline_datapoints:
+        description: Garmin datapoints received by the Collector, by metric name.
+        attributes:
+          - key: metric_name
+            default_value: unknown
 
 processors:
+  # First in every pipeline. Under memory pressure the Collector refuses data
+  # (the exporter's gRPC call fails and the run is retried or reported) instead
+  # of being OOM-killed with data in flight. Percentages are of the container's
+  # cgroup limit (512Mi in the Deployment).
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  # The metric-name contract (dashboards/README.md) enforced at the edge:
+  # only garmin_* is accepted over OTLP. Anything else pointed at this
+  # Collector by mistake is dropped instead of polluting VictoriaMetrics.
+  filter/garmin_only:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'not IsMatch(name, "^garmin_")'
+
+  # Only in the flow-counting pipeline: copy the metric name onto each
+  # datapoint so the count connector can group by it. The stored Garmin series
+  # never see this attribute -- the receiver hands each pipeline its own copy.
+  transform/metric_name:
+    error_mode: ignore
+    metric_statements:
+      - set(datapoint.attributes["metric_name"], metric.name)
+
+  # The count connector emits delta sums; Prometheus remote write only carries
+  # cumulative ones (deltas are dropped). This processor keeps the running
+  # total in memory and emits it cumulatively.
+  delta_to_cumulative:
+    max_stale: 1h
+
   batch:
     timeout: 5s
-    send_batch_size: 256
+    send_batch_size: 1024
+    # Upper bound so a backfill burst becomes several remote-write requests
+    # rather than one very large one.
+    send_batch_max_size: 4096
 
 exporters:
   prometheus_remote_write:
     http:
-      endpoint: http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write
-      insecure: true
+      # Set by the Deployment (kustomize) or the chart (Helm), which name the
+      # VictoriaMetrics Service differently. One file serves both.
+      endpoint: ${env:VM_REMOTE_WRITE_ENDPOINT}
+      tls:
+        insecure: true
     # Without this, every series gains `otel_scope_name` and
-    # `otel_scope_version` labels. The backfill path writes the same metrics
-    # without them, so the two paths would produce two different series for
-    # every metric and every dashboard would show half the data.
+    # `otel_scope_version` labels. The VM-import escape hatch writes the same
+    # metrics without them, so the two paths would produce two different series
+    # for every metric and every dashboard would show half the data.
     disable_scope_info: true
-    # There is deliberately NO `job`/`instance` label on these series.
+    # There is deliberately NO `job`/`instance` label on the Garmin series.
     #
-    # The Prometheus translation in the Collector adds `job` from
-    # `service.name` and `instance` from `service.instance.id` whenever the
-    # OTLP resource carries them, and no collector setting suppresses it --
-    # `resource_constant_labels` and the deprecated
-    # `resource_to_telemetry_conversion` only govern the *other* resource
-    # attributes. So the exporter sends an empty resource instead. The metric
-    # names already carry the namespace.
+    # The Prometheus translation adds `job` from `service.name` and `instance`
+    # from `service.instance.id` whenever the OTLP resource carries them, and no
+    # collector setting suppresses it -- `resource_constant_labels` and the
+    # deprecated `resource_to_telemetry_conversion` only govern the *other*
+    # resource attributes. So the exporter sends an empty resource instead.
+    # (The self-scrape *does* carry job/instance labels -- job="otelcol-contrib",
+    # the Collector's own service.name -- and that is wanted.)
     retry_on_failure:
       enabled: true
       initial_interval: 5s
       max_interval: 30s
       max_elapsed_time: 5m
 
+  # Prints every datapoint to the Collector's log. Not in any pipeline by
+  # default; add it to metrics/garmin's exporters when debugging what arrives.
+  debug:
+    verbosity: basic
+
 service:
-  extensions: [health_check]
+  extensions: [health_check, zpages, pprof]
   pipelines:
-    metrics:
+    # The health data itself. Nothing in here may add, drop or rename labels.
+    metrics/garmin:
       receivers: [otlp]
-      processors: [batch]
+      processors: [memory_limiter, filter/garmin_only, batch]
       exporters: [prometheus_remote_write]
+
+    # Same input, counted instead of stored.
+    metrics/flow:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/garmin_only, transform/metric_name]
+      exporters: [count]
+
+    # Everything about the pipeline itself: the flow counters and the
+    # Collector's own telemetry.
+    metrics/pipeline:
+      receivers: [count, prometheus/self]
+      processors: [memory_limiter, delta_to_cumulative, batch]
+      exporters: [prometheus_remote_write]
+
   telemetry:
     logs:
       level: info
+    metrics:
+      # "normal" includes per-component accepted/refused/sent/failed counters
+      # and queue size, which is what the pipeline alerts use.
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: localhost
+                port: 8888

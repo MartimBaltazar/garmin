@@ -24,6 +24,15 @@ spec:
         - name: otel-collector
           image: otel/opentelemetry-collector-contrib:0.164.0
           args: ["--config=/conf/collector.yaml"]
+          env:
+            # Referenced as ${env:VM_REMOTE_WRITE_ENDPOINT} in collector.yaml,
+            # so the same file works under kustomize and Helm.
+            - name: VM_REMOTE_WRITE_ENDPOINT
+              value: http://victoriametrics.garmin.svc.cluster.local:8428/api/v1/write
+            # Lets memory_limiter's percentages and the Go GC agree on the
+            # container's real budget.
+            - name: GOMEMLIMIT
+              value: 400MiB
           ports:
             - name: otlp-grpc
               containerPort: 4317
@@ -57,7 +66,7 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /conf
-            # Zub components snapshot state under the working dir; everything
+            # Components snapshot state under the working dir; everything
             # the Collector writes goes here, keeping the root filesystem read.
             - name: tmp
               mountPath: /tmp
