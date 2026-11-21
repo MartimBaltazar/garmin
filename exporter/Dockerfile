@@ -8,7 +8,7 @@
 # (.github/workflows/ci.yml); Dependabot keeps the base images current.
 ARG PYTHON_IMAGE=python:3.12-slim
 
-FROM ghcr.io/astral-sh/uv:0.11.32 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
 
 FROM ${PYTHON_IMAGE} AS builder
 COPY --from=uv /uv /bin/uv
